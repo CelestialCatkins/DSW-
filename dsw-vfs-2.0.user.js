@@ -6406,6 +6406,17 @@
         const rangeNote = r.range ? (' L' + r.range[0] + (r.range[1] !== r.range[0] ? '-' + r.range[1] : '')) : '';
         // head/tail 也在 summary 里回显，否则「为什么只给了 20 行」要靠猜
         const htNote = flags.head != null ? ' head=' + flags.head : (flags.tail != null ? ' tail=' + flags.tail : '');
+        // 负偏移统一为显式范围：read #a3f -8 这种写法过去只把 -8 当「多余裸词」吞掉，
+        // 交出解析后的显式行号，并提示「改显式写法」。（自愈不许静默）
+        const relSpan = flags._relSpan;
+        if (cmd.anchor && relSpan != null && relSpan < 0 && -relSpan < 400) {
+            const ar = AnchorStore.resolve(cmd.anchor);
+            const base = (ar && ar.relocated ? ar.relocated[1] : (ar ? ar.line : 1));
+            const start = Math.max(1, base - (-relSpan) + 1);
+            const end = base;
+            const hint = 'ℹ ' + cmd.anchor + ' 负偏移已转显式范围 L' + start + '-' + end + '；建议直接写：read ' + cmd.anchor + ' ' + start + '-' + end;
+            out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + hint) : hint;
+        }
         return {
             ok: true, op: 'read', path: r.path, changes: [],
             summary: 'read ' + r.path + (cmd.anchor ? ' ' + cmd.anchor : '') + rangeNote + htNote + ' ' + r.totalLines + '行/' + fmtSize(r.size),
@@ -6643,6 +6654,93 @@
         return null;
     }
 
+    // 静态校验：一行一行扫，给出「行号 + 证据」。
+    //   1) 括号配对：() [] {} 匹配；结余/错配皆报（证据含列号）
+    //   2) 字符串闭合：' " ` 三种引号内转义，未闭合报
+    //   3) 语法错误：结构性缺失（行尾悬空的 if/for/while 与未闭合块）
+    function lintOneLine(line, idx) {
+        const errors = [];
+        const pairs = { ')': '(', ']': '[', '}': '{' };
+        const opens = ['(', '[', '{'];
+        const closes = [')', ']', '}'];
+        const stack = [];
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (opens.indexOf(ch) !== -1) stack.push({ ch: ch, pos: i });
+            else if (closes.indexOf(ch) !== -1) {
+                const top = stack[stack.length - 1];
+                if (top && top.ch === pairs[ch]) stack.pop();
+                else errors.push('第 ' + (i + 1) + ' 列：' + ch + ' 找不到匹配的开括号（' + (top ? top.ch : '无') + '）');
+            }
+        }
+        for (const s of stack) errors.push('第 ' + (s.pos + 1) + ' 列：' + s.ch + ' 缺少闭合括号');
+        // 字符串闭合
+        let q = null;
+        let esc = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (esc) { esc = false; continue; }
+            if (q) { if (ch === '\\') esc = true; else if (ch === q) q = null; }
+            else if (ch === "'" || ch === '"' || ch === '`') q = ch;
+        }
+        if (q) errors.push('未闭合的字符串：' + q);
+        return errors;
+    }
+
+    // 可疑强调标记（`*` 边界）:
+    function flagSuspiciousEmphasis(body) {
+        const text = String(body == null ? '' : body);
+        if (!text.trim()) return '';
+        const rows = text.split('\n');
+        const notes = [];
+        for (let i = 0; i < rows.length; i++) {
+            const stripped = rows[i].replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+            for (const mk of ['**', '__']) {
+                let n = 0;
+                for (let j = stripped.indexOf(mk); j !== -1; j = stripped.indexOf(mk, j + mk.length)) {
+                    const before = j === 0 ? '' : stripped[j - 1];
+                    const after = stripped[j + mk.length] || '';
+                    if (before === '' || /[^\w]/.test(before) || after === '' || /[^\w]/.test(after)) n++;
+                }
+                if (n % 2 === 1) notes.push('L' + (i + 1) + '：孤立的 ' + mk + ' 出现 ' + n + ' 次（奇数）');
+            }
+        }
+        return notes.join('；');
+    }
+
+    // 静态语法校验命令（括号配对、字符串闭合、行号 + 证据）
+    function doLint(cmd, path) {
+        const p = path || cmd.path;
+        if (!p) return fail(cmd, path, 'lint 需要文件路径（例如：lint /src/a.js）', { kind: 'syntax', syntax: 'lint /路径', fix: 'lint /src/a.js' });
+        const r = VirtualFS.read(p, { numbered: true });
+        if (!r.ok) return pickLine(r, cmd);
+        const lines = r.lines ? r.lines.map(function (x, i) { return x.text; }) : [];
+        const errors = [];
+        for (let i = 0; i < lines.length; i++) {
+            const ls = lintOneLine(lines[i], i);
+            for (const e of ls) errors.push('L' + (i + 1) + ' ' + e);
+        }
+        const summary = errors.length ? 'lint ' + p + ' → ' + errors.length + ' 处问题' : 'lint ' + p + ' → 无问题';
+        return { ok: errors.length === 0, op: 'lint', path: p, summary: summary, body: errors.length ? errors : ['(无问题)'] };
+    }
+
+    // base64 通道提示：高危模式下主动建议 write /f base64
+    function suggestBase64(body, n) {
+        const text = String(body == null ? '' : body);
+        if (!text) return '';
+        const lines = text.split('\n');
+        if (lines.some(function (l) { return /^<{3}/.test(l.trim()) || /^>{3}$/.test(l.trim()); })) {
+            return 'ℹ 检测到高危模式（正文含完整行 <<</>>>），改用：write /f base64';
+        }
+        if (/\x00/.test(text)) return 'ℹ 检测到高危模式（含 NUL 字节），改用：write /f base64';
+        if (/\n[ \t]*\n[ \t]*\n[ \t]*\n/.test(text)) return 'ℹ 检测到高危模式（正文换行过多），改用：write /f base64';
+        if (/^ \/\/[^\n]*\/[gim]*$/.test(text) || /^[^\n]* \/[^\n]*\/[gim]*$/.test(text)) {
+            // 单行正则字面量（/pattern/flags）
+            return 'ℹ 检测到高危模式（疑似正则字面量），改用：write /f base64';
+        }
+        return '';
+    }
+
     /* 取正文：`... base64` 时先解码。返回 { body } 或 { error }（error 已是回执对象）。
      * 为什么要有它：正文里的 `<<<` 会提前闭合 heredoc、整行 `>>>` 会被网页吃掉 ——
      * base64 让正文不再「经过聊天渲染层」，是含特殊字符内容（JS/CSS）唯一可靠的通道。 */
@@ -6667,6 +6765,8 @@
     }
 
     function doWrite(cmd, path, ctx) {
+        const rawBody = cmd.body == null ? '' : cmd.body.join('\n');
+        const b64Note = suggestBase64(rawBody, cmd);
         const bt = bodyTextOf(cmd, 'write', path);
         if (bt.error) return bt.error;
         const body = bt.body;
@@ -6681,6 +6781,10 @@
             ctx.heals++;
             out.selfHeal = '自动建目录 ' + r.autoMkdir.join(' ');
         }
+        if (b64Note) {
+            ctx.heals++;
+            out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + b64Note) : b64Note;
+        }
         const sus = suspiciousBody(body);          // 13：可疑正文 → 标 ⚠（仍然写入，不拒绝）
         if (sus) {
             ctx.heals++;
@@ -6692,12 +6796,23 @@
     }
 
     function doAppend(cmd, path, ctx) {
+        const rawBody = cmd.body == null ? '' : cmd.body.join('\n');
+        const b64Note = suggestBase64(rawBody, cmd);
         const bt = bodyTextOf(cmd, 'append', path);
         if (bt.error) return bt.error;
         const body = bt.body;
         const r = VirtualFS.append(path, body, cmd.flags);
         if (!r.ok) return pickLine(r, cmd);
-        return noteImplicitBodyClose(cmd, { ok: true, op: 'append', path: r.path, changes: [r.path], summary: (r.created ? '+ ' : '~ ') + r.path + ' +' + fmtSize(r.appended == null ? byteLen(body) : r.appended) + (bt.decoded ? '（base64 解码）' : '') }, ctx);
+        if (b64Note) {
+            ctx.heals++;
+            out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + b64Note) : b64Note;
+        }
+        const out = { ok: true, op: 'append', path: r.path, changes: [r.path], summary: (r.created ? '+ ' : '~ ') + r.path + ' +' + fmtSize(r.appended == null ? byteLen(body) : r.appended) + (bt.decoded ? '（base64 解码）' : '') };
+        if (b64Note) {
+            ctx.heals++;
+            out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + b64Note) : b64Note;
+        }
+        return noteImplicitBodyClose(cmd, out, ctx);
     }
 
     // 缩进补回的 ⚠ 文案（契约 §4：补回了就必须说）—— 模糊匹配与按行替换共用同一份
@@ -7379,11 +7494,26 @@
         }
         const lines = content.split('\n');
         const probe = findSimilarLines(content, text, 1)[0];
+        // 期望模式 vs 实际匹配内容：先给两个字段，再标出第一个不同字符位置
+        let diffPos = null;
+        const a = text;
+        const b = probe ? probe.text : '';
+        const minLen = Math.min(a.length, b.length);
+        for (let i = 0; i < minLen; i++) {
+            if (a[i] !== b[i]) { diffPos = i; break; }
+        }
+        const detail = [];
+        detail.push('  期望模式: ' + a.slice(0, 120));
+        detail.push('  实际匹配: ' + (probe ? b.slice(0, 120) : '(无匹配内容)'));
+        if (diffPos != null) {
+            detail.push('  差异：第 ' + (diffPos + 1) + ' 个字符 — 期望 ' + JSON.stringify(a[diffPos]) + ' 实际 ' + JSON.stringify(b[diffPos]));
+        }
+        detail.concat(lines.slice(0, 3).map(function (l, i) { return '  实际 L' + (i + 1) + '| ' + l.slice(0, 120); }));
+        if (probe) detail.push('  最接近 L' + probe.line + '| ' + probe.text.slice(0, 120));
         return {
             ok: false, op: 'expect', path: path, kind: 'expect',
             error: '断言失败：' + path + ' 里没有 “' + text.slice(0, 40) + '”',
-            detail: lines.slice(0, 3).map(function (l, i) { return '  实际 L' + (i + 1) + '| ' + l.slice(0, 120); })
-                .concat(probe ? ['  最接近 L' + probe.line + '| ' + probe.text.slice(0, 120)] : []),
+            detail: detail,
             fix: 'read ' + path + ' 核对后再改'
         };
     }
@@ -15064,7 +15194,8 @@
             judgeBirth, witnessSend, consumeArm, isArmed,
             handleMessage, runMessage, processNewMessages, enqueueOutbound,
             injectionPending, injectionPayload, buildInjection, markInjected, tryInjectThenSend,
-            setPaused, isPaused
+            setPaused, isPaused,
+            doLint, flagSuspiciousEmphasis, suggestBase64
         });
         // #6 暂停状态机：手动暂停 / 终止符暂停共用一套表现，原因分开记录
         DSW.pause = {
@@ -15272,6 +15403,8 @@
             // P1：会话状态层就位后再动任何持久状态。ready() 永不 reject（失败自动降级 GM），
             // 所以这里不会因为 IDB 被禁用而卡住整个脚本启动。
             await SessionState.ready();
+            // 启动提示：不阻塞后续任意操作，顺手放一个可见的「程序正在启动」
+            pushLog('程序正在启动…');
             SessionState.sweep();
 
             // 配置必须在 FsMedia.ready() **之前**读出来：ready() 要靠 CONFIG.FS_MEDIA 决定
