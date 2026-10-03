@@ -2,7 +2,7 @@
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
 // @version      2.9.2
-// @description  AI 对话容器工作区 2.0：执行域协议 [[dsw]] + 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道
+// @description  AI 对话容器工作区 2.0：执行域协议 [[dsw]] + 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
 // @match        https://deepseek.com/*
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.9.2';
+    const VERSION = '2.11.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -153,7 +153,9 @@
 
         // —— 提示词 / 注入 ——
         AUTO_BOOTSTRAP: true,      // 新对话注入（不再自动发送，随用户首次发送一并注入）
-        INJECT_MANUAL: true,       // 注入内容里带手册全文
+        // 2.11.0 投喂策略：默认只发**目录卡**（手册分节 + 按节取法），不发全文 ——
+        // 全文一次性灌进去 AI 记不住、记不准；真要全文可自行打开「注入手册全文」。
+        INJECT_MANUAL: false,
 
         // —— 节奏器（§9.2）——
         RATE_LIMIT_ENABLED: true,  // 关闭后不再有最小间隔/每分钟上限/平台限流等待
@@ -814,7 +816,8 @@
                         let d = handle;
                         for (let k = 0; k < segs.length - 1; k++) d = await d.getDirectoryHandle(segs[k], { create: true });
                         if (content === undefined) {
-                            await d.removeEntry(segs[segs.length - 1]).catch(function () {});
+                            // recursive：删除 __sys 这种目录时要连里面的文件一起删
+                            await d.removeEntry(segs[segs.length - 1], { recursive: true }).catch(function () {});
                         } else {
                             const fh = await d.getFileHandle(segs[segs.length - 1], { create: true });
                             const w = await fh.createWritable();
@@ -1249,6 +1252,8 @@
             const f = fsaImpl(handle);
             await f.ready();
             const moved = await switchTo(f, '文件夹');
+            // 换/重绑可能选到一个旧版用过的文件夹：顺手清掉里面的系统区副本
+            try { purgeSystemMirror(true); } catch (e) {}
             CONFIG.FS_MEDIA = 'fsa';
             readyPromise = Promise.resolve('fsa');
             blocked = null;
@@ -2235,7 +2240,12 @@
      * 内容介质按 hash 存 blob（去重、撤销、GC 都靠它，不能动），但用户打开文件夹
      * 只看到一堆 hash 名字、而且 .dsw 是隐藏目录 —— 等于什么都看不到。
      * 所以额外把**活文件按原路径**写一份：/src/a.js → <文件夹>/src/a.js。
-     * mirrorState 记「我们相信磁盘上就是这个内容」，比对不上才写，避免每次全量重写。 */
+     * mirrorState 记「我们相信磁盘上就是这个内容」，比对不上才写，避免每次全量重写。
+     *
+     * 2.10.0：**系统区（/__sys）不镜像**。系统文件（手册/计划）由容器自己管，
+     * 一旦写到手机存储里，用户用文件管理器就能看到、也可能顺手误删；而容器的
+     * 「内部区只读」保护只作用于容器内部，管不到容器外那份副本 —— 所以干脆不写出去。
+     * 回收站（/__trash）同理。 */
     let mirrorState = new Map();       // 虚拟路径 -> hash
 
     function fsRelPath(vpath) { return String(vpath).replace(/^\/+/, ''); }
@@ -2250,12 +2260,30 @@
         walk(fsData.root, '/');
     }
 
+    /* 2.10.0：把旧版可能留在用户文件夹里的系统区副本清掉。
+     * 只删「__sys」这一个容器保留名（含里面的文件与目录），用户自己的文件一个不动。
+     * 用 sysMirrorPurged 保证一次会话只清一次，避免反复排删除任务。 */
+    let sysMirrorPurged = false;
+    function purgeSystemMirror(force) {
+        if (!FsMedia.canMirror()) return false;
+        if (sysMirrorPurged && !force) return false;
+        sysMirrorPurged = true;
+        const rel = fsRelPath(SYS_PREFIX.replace(/\/+$/, ''));   // '/__sys/' → '__sys'
+        if (!rel) return false;
+        try { FsMedia.realDel(rel); return true; }
+        catch (e) { warn('清理文件夹里的系统区失败：', e && e.message); return false; }
+    }
+
     // 把活文件同步到文件夹（只写有变化的）。返回写了几个。
     function mirrorToFolder() {
         if (!FsMedia.canMirror()) return 0;
+        // 先清掉旧版留下的系统区副本（一次会话只做一次）
+        try { purgeSystemMirror(); } catch (e) {}
         const cur = new Map();
         walkLiveFiles(function (vp, node) {
-            if (vp.indexOf(TRASH_PREFIX) === 0) return;      // 回收站是内部区，不镜像
+            // 内部区（系统区 /__sys + 回收站 /__trash）不镜像到文件夹 ——
+            // 系统文件落到手机存储里会被文件管理器误删，且容器只读保护管不到容器外。
+            if (isInternalAreaPath(vp)) return;
             cur.set(vp, node);
         });
         let n = 0;
@@ -2315,6 +2343,7 @@
             Promise.resolve()
                 .then(function () { return FsMedia.flush(); })
                 .then(function () { return fsSyncFromFolder(); })
+                .then(function () { purgeSystemMirror(true); })
                 .then(function () { mirrorToFolder(); })
                 .then(function () {
                     try { pushLog('文件夹权限已自动接上（' + why + '）'); } catch (e) {}
@@ -4843,9 +4872,10 @@
         missingBlobs: function () { return missingBlobs.slice(); },
         corrupt: function () { return fsCorrupt; },
         head: function () { return { seq: fsHead.seq, baseSeq: fsHead.baseSeq }; },
-        // P3b-2b：真实文件镜像（只有文件夹介质有意义）
+        // P3b-2b：真实文件镜像（只有文件夹介质有意义）；系统区不镜像
         syncFromFolder: fsSyncFromFolder,
         mirrorToFolder: mirrorToFolder,
+        purgeSystemMirror: purgeSystemMirror,
         mirrorState: function () { return mirrorState.size; },
         snapshot() {
             const blobCache = new Set();
@@ -6501,11 +6531,29 @@
                 const names = COMMAND_NAMES.filter(function (n) { return COMMANDS[n].kind === k; });
                 if (names.length) body.push('[' + (label[k] || k) + '] ' + names.join('  '));
             }
-            body.push('help <命令> 查该命令的用法与坑；完整规范：read ' + SYS_MANUAL_PATH);
-            return { ok: true, op: 'help', path: '', summary: 'help → ' + COMMAND_NAMES.length + ' 个命令（按类别）', body: body };
+            body.push('help <命令> 查该命令的用法与坑');
+            // 顺带列出手册目录：告诉 AI「手册分这些节、可以按节取」，而不是把全文塞过去
+            body.push('');
+            body.push('【手册目录】');
+            for (const s of manualSections().secs) body.push('§' + s.num + ' ' + s.title);
+            body.push('help §2 取某一节（或 help 正文 / help 令牌 按关键词）；全文 read ' + SYS_MANUAL_PATH);
+            return { ok: true, op: 'help', path: '', summary: 'help → ' + COMMAND_NAMES.length + ' 个命令 + 手册目录', body: body };
         }
         const norm = normalizeOp(raw);
         if (!norm.op) {
+            // 不是命令：按「节号 / 标题关键词」取**那一节**单节正文（按需即取的关键一步）
+            const sec = findManualSection(raw);
+            if (sec.ok) {
+                return { ok: true, op: 'help', path: '§' + sec.section.num,
+                    summary: 'help §' + sec.section.num + ' → ' + sec.section.title,
+                    body: sec.section.text.split('\n') };
+            }
+            if (sec.candidates && sec.candidates.length) {
+                return fail(cmd, raw, '手册里有 ' + sec.candidates.length + ' 节都像「' + raw + '」', {
+                    kind: 'unknown-op',
+                    fix: 'help §' + sec.candidates.map(function (s) { return s.num; }).join(' 或 §')
+                });
+            }
             return fail(cmd, raw, '没有这个命令：' + raw, {
                 kind: 'unknown-op', closest: norm.closest,
                 fix: norm.closest ? ('最接近：' + norm.closest.name + '（help ' + norm.closest.name + '）') : 'help 列出全部命令'
@@ -7852,6 +7900,8 @@
         const hints = [];
         // 病因诊断优先于「这一条怎么改」：先讲清楚为什么，再给单条写法的纠正
         if (opts.diagnosis) hints.push('◀ 病因诊断：' + opts.diagnosis);
+        // 错点补课：这一轮踩的坑在哪一节手册里（一行、带冷却）—— 在最需要时只给那一条
+        if (opts.manualHint) hints.push('◀ ' + opts.manualHint);
         const hint = opts.hint || (failures.length ? correctionFor(failures[0]) : null);
         if (hint) hints.push('◀ ' + hint);
         if (opts.cwdHint) hints.push('◀ ' + opts.cwdHint);
@@ -8291,10 +8341,143 @@
             '- 回执里的两个令牌可以直接当路径用：`#a3f` 指向某一行（`edit #a3f <<<…<<<`；`read #a3f` 读该行 ±3 行，`read #a3f 20` 往下 20 行、`read #a3f -10` 往上 10 行），`@p1` 指向某个文件（`read @p1` / `edit @p1 "旧" "新"` / `merge /out @p1 @p2`）。',
             '- 每条回复的最后一行写 `◆` 收尾（容器靠它判断你说完了）。整个任务全部跑完、或需要用户介入（授权 / 选择 / 缺信息）时，最后一行**改写** `■ <一句原因>`（那时不要再写 `◆`）。',
             '- 要让用户看到进度就用 `plan`：`plan add <条目>` 加一条，`plan doing|done|todo <序号>` 改状态（○ 待完成 ⟳ 进行中 ✓ 完成）。',
-            '你这条回复完全输出完之前，容器不会执行、也不会插话打断你；完整手册（协议 ' + PROTO_VERSION + '）在开启「注入手册全文」时会附在下方，容器里也随时可以 read ' + SYS_MANUAL_PATH + ' 复核。'
+            '你这条回复完全输出完之前，容器不会执行、也不会插话打断你；手册**按节随取，别背全文**：`help` 看目录、`help §2`（或 `help <命令>`）取那一节、`read ' + SYS_MANUAL_PATH + '` 取全文（协议 ' + PROTO_VERSION + '）。'
         ].join('\n');
     }
-        const BOOTSTRAP_PROMPT = buildBootstrapPrompt();
+    const BOOTSTRAP_PROMPT = buildBootstrapPrompt();
+
+    /* =========================================================================
+     * 11b 手册投喂层：分节 / 按需即取 / 错点补课 / 冷启动微课
+     *
+     * 为什么不「一次性灌全本」：整本手册几千字，AI 读完记不住、记不准，
+     * 到真要用的时候（正文怎么闭合、令牌怎么用）还是靠猜 —— 长文会随上下文被稀释。
+     * 所以改成三段式，核心是「多次、少量、恰逢其时」：
+     *   ① 首轮只给自足的 L0 + 一张**目录卡**：知道「手册分几节、可以按节取」就够；
+     *   ② 按需即取（pull）：`help §2` / `help 正文` 现取**那一节**，`read /__sys/手册.md` 取全文；
+     *   ③ 错点补课（push）：哪一轮踩了坑，回执就附一行「手册§N」——
+     *      在他最需要的那一刻只给那一条，并做冷却，不刷屏；
+     *   ④ 冷启动微课（reinforce）：会话头几轮每轮回执轮播一条最小契约，轮完就停。
+     * ====================================================================== */
+
+    let manualSecCache = null;
+    // 从 buildManual() 的成品里按 `## N. 标题` 切节 —— 手册文本仍是**单一出处**，
+    // 这里只做切分，不复制任何正文，改手册不会让两份漂移。
+    function manualSections() {
+        if (manualSecCache) return manualSecCache;
+        const lines = String(buildManual()).split('\n');
+        const secs = [];
+        const head = [];
+        let cur = null;
+        for (const ln of lines) {
+            const m = /^##\s+(\d+)[.、]\s*(.+?)\s*$/.exec(ln);
+            if (m) { cur = { num: Number(m[1]), title: m[2], lines: [ln] }; secs.push(cur); }
+            else if (cur) cur.lines.push(ln);
+            else head.push(ln);
+        }
+        for (const s of secs) {
+            s.text = s.lines.join('\n').replace(/\s+$/, '');
+            s.summary = manualSectionSummary(s);
+        }
+        manualSecCache = { head: head.join('\n'), secs: secs };
+        return manualSecCache;
+    }
+
+    // 一节的一句话摘要：取小节里第一个「像正文」的行
+    // （跳过空行 / 代码围栏**内含**的行 / 表格；只去掉 ** 与反引号，**不碰下划线**——
+    //  否则 /__sys/plan.md 会被搝成 /sys/plan.md 这种假路径）
+    function manualSectionSummary(s) {
+        let inFence = false;
+        for (const ln of s.lines.slice(1)) {
+            const t = ln.trim();
+            if (/^```/.test(t)) { inFence = !inFence; continue; }
+            if (inFence) continue;
+            if (!t || /^\|/.test(t) || /^[-•]\s*$/.test(t)) continue;
+            const plain = t.replace(/[`*]/g, '').replace(/^[-•]\s*/, '').trim();
+            if (!plain) continue;
+            return plain.length > 64 ? plain.slice(0, 63) + '…' : plain;
+        }
+        return '';
+    }
+
+    // 目录卡：只含「有哪些节 + 怎么按需取」，本身不含规则正文 —— 首轮随 L0 一起发。
+    function manualTOC() {
+        const got = manualSections();
+        const out = ['## 手册目录（按需即取，不必背全文）', ''];
+        for (const s of got.secs) out.push('§' + s.num + ' ' + s.title + (s.summary ? '：' + s.summary : ''));
+        out.push('');
+        out.push('要用某一节：`help §2`（或 `help 正文` / `help 令牌` 按关键词取）；全文 `read ' + SYS_MANUAL_PATH + '`。');
+        out.push('上手先记这四节：§1 执行域 · §2 命令与正文 · §7 危险操作与权限 · §9 收尾符与终止符。');
+        return out.join('\n');
+    }
+
+    // 按「节号 / 关键词」定位单节（给 help 用）
+    function findManualSection(raw) {
+        const secs = manualSections().secs;
+        const q = String(raw == null ? '' : raw).trim();
+        const m = /^[§#＃]?\s*(\d{1,2})$/.exec(q);
+        if (m) {
+            const n = Number(m[1]);
+            const s = secs.filter(function (x) { return x.num === n; })[0];
+            if (s) return { ok: true, section: s };
+        }
+        const key = q.replace(/[§#＃\s]/g, '').toLowerCase();
+        if (key.length >= 2 && !/^\d+$/.test(key)) {
+            // 分层挑：先按标题命中，再摘要，最后才扩展正文 —— 标题命中优先，避免「像很多节」
+            const byTitle = secs.filter(function (x) { return x.title.toLowerCase().indexOf(key) !== -1; });
+            const bySum = secs.filter(function (x) { return (x.summary || '').toLowerCase().indexOf(key) !== -1; });
+            const byBody = secs.filter(function (x) { return x.text.toLowerCase().indexOf(key) !== -1; });
+            const hits = byTitle.length ? byTitle : (bySum.length ? bySum : byBody);
+            if (hits.length === 1) return { ok: true, section: hits[0] };
+            if (hits.length > 1) return { ok: false, candidates: hits };
+        }
+        return { ok: false, candidates: [] };
+    }
+
+    // 错点补课：把「这一轮为什么错」映射到真正相关的那一节
+    function manualSectionForFailure(results, diagnosis) {
+        if (diagnosis) return 2;                        // heredoc 提前闭合 / 内联被换行 → §2 命令与正文
+        const f = (results || []).filter(function (r) { return r && !r.ok; })[0];
+        if (!f) return 0;
+        const k = String(f.kind || '');
+        if (k === 'denied') return 7;
+        if (k === 'unknown-op' || k === 'legacy-syntax') return 3;
+        if (k === 'anchor' || /锚点|令牌/.test(String(f.error || ''))) return 4;
+        if (/dry|预演/.test(String(f.error || ''))) return 10;
+        if (f.op === 'delete' || f.op === 'restore' || f.op === 'undo' || f.op === 'redo') return 7;
+        return 2;
+    }
+
+    const manualHintAt = new Map();
+    const MANUAL_HINT_COOLDOWN_MS = 120000;   // 同一节的补课 2 分钟内不重复念
+
+    // 回执里附的那一行（不含前导 ◀）：带冷却，最多一行；无事可指时返回 null
+    function manualHintLine(results, diagnosis) {
+        const n = manualSectionForFailure(results, diagnosis);
+        if (!n) return null;
+        const now = Date.now();
+        if (now - (manualHintAt.get(n) || 0) < MANUAL_HINT_COOLDOWN_MS) return null;
+        const s = manualSections().secs.filter(function (x) { return x.num === n; })[0];
+        if (!s) return null;
+        manualHintAt.set(n, now);
+        return '手册§' + s.num + ' ' + s.title + '：需要时 `help §' + s.num + '` 现取这一节';
+    }
+
+    // 冷启动微课：会话头几轮每轮轮播**一条**最小契约，轮完即停（少量多次 > 一次灌满）
+    const MICRO_LESSONS = [
+        '命令必须写在 `[[dsw]] … [[/dsw]]` 里；域外一律不执行。',
+        '多行正文 `<<<` 开、`<<<` 收；正文里出现整行 `<<<` 就改用 `<<<<<`。',
+        '含缩进 / 代码 / 成对 `__` `**` 的正文，**在正文里再包一层三反引号**。',
+        '每条回复的最后一行写 `◆`；任务全部跑完或要用户介入，改写 `■ 原因`。',
+        '定位用令牌 —— `#a3f` 指某一行、`@p1` 指某个文件，直接当路径用。',
+        '不会的命令别猜 —— `help` 列全部，`help <命令>` 给用法与坑。'
+    ];
+    let microLessonStep = 0;
+    function microLessonText(maxLessons) {
+        const cap = Math.max(0, Number(maxLessons == null ? MICRO_LESSONS.length : maxLessons));
+        if (microLessonStep >= cap) return '';
+        return MICRO_LESSONS[microLessonStep++ % MICRO_LESSONS.length];
+    }
+    function resetManualFeed() { microLessonStep = 0; manualHintAt.clear(); }
 
 /* >>> 12-gate.js */
     /* ---- 本模块专属常量（原 CONFIG 项；只在本模块用到，2026 收敛搬进来） ---- */
@@ -9288,6 +9471,7 @@
         settleLogAt = 0;
         settleHoldWarned = false;
         genCache = { at: 0, val: false };
+        try { resetManualFeed(); } catch (e) {}
         resetConvTrack();
     }
 
@@ -9327,6 +9511,7 @@
         bootFallbackKey = '';
         try { composerCache = { el: null, at: 0 }; } catch (e) {}
         ledgerReset();
+        try { resetManualFeed(); } catch (e) {}    // 投喂层：微课轮播计数与补课冷却都是按会话的，跟着归零
         try { resetComposerSentinels(); } catch (e) {}   // 3.2：哨兵残留会凭上一个会话的输入框误判一次 composer-emptied
         try { Ckpt.load(); } catch (e) {}          // 检查点也是按会话存的：读回新会话那一份
         pushLog('会话状态已初始化（' + reason + '）：cwd=/，锚点/幂等/阶梯按会话各自计');
@@ -10172,6 +10357,7 @@
             steady: steady,
             cwd: cwd,
             diagnosis: diagnosis,
+            manualHint: failed ? manualHintLine(results, diagnosis) : null,
             hint: batch.rolledBack && atomic ? '原子批次：首错已整批回滚，修正后重发' : denyHint,
             cwdHint: 'cwd=' + cwd + (decision.note ? '；' + decision.note : '')
         });
@@ -10296,7 +10482,10 @@
     // 与用户那句话写进同一个输入框、作为同一条消息发出（§9.2：能合并就一条）。
     function injectionPayload() {
         const parts = [buildBootstrapPrompt()];
+        // 默认只发**目录卡**（手册有哪些节 + 怎么按节取），不发全文：
+        // 全文几千字一次性灌进去，AI 记不住、记不准。要全文的用户可在设置里开「注入手册全文」。
         if (CONFIG.INJECT_MANUAL !== false) parts.push(buildManual());
+        else parts.push(manualTOC());
         return parts.join('\n\n');
     }
 
@@ -10979,6 +11168,12 @@
             const plan = (typeof planOutboundText === 'function') ? planOutboundText() : '';
             if (plan) out.push({ text: plan, kind: 'plan', prio: PRIO.plan, at: now, conv: conv });
         } catch (e) { warn('计划进度搭车失败：', e && e.message); }
+        // 冷启动微课：会话头几轮每轮附**一条**最小契约（轮播、有限次）—— 少量多次地固化，
+        // 比首轮灌全本记得牢；轮完就停，不会一直叨扰。
+        try {
+            const lesson = (typeof microLessonText === 'function') ? microLessonText() : '';
+            if (lesson) out.push({ text: '【契约】' + lesson, kind: 'nudge', prio: PRIO.nudge, at: now, conv: conv });
+        } catch (e) { warn('微课搭车失败：', e && e.message); }
         return out;
     }
 
@@ -12310,7 +12505,7 @@
             uiCfg = Object.assign({
                 autoSend: true,
                 autoBootstrap: true,
-                injectManual: true,
+                injectManual: false,
                 rateLimit: true,
                 planMode: false,
                 debug: false,
@@ -13840,6 +14035,8 @@
                 '（比如容器的 /src/a.js 就是文件夹里的 src/a.js），可以用文件管理器直接看、改、备份。\n' +
                 '文件夹里的 .dsw 目录是容器的内部记录（历史版本、撤销、去重内容）：平时不用管，但**别删**。\n' +
                 '你在文件夹里改了或新增了文件，下次打开页面会自动读进容器。\n' +
+                '系统区（/__sys：手册、计划）不会写到你的文件夹里 —— ' +
+                '免得系统文件躺在手机存储里被文件管理器误删（容器的只读保护管不到容器外）。\n' +
                 '存在「油猴存储」里：省事，但容量小，清浏览器数据就没了。\n' +
                 '绑定或切换时，容器内容会**自动搬过去**，不会丢。' +
                 '</span></span></div>';
@@ -13919,7 +14116,7 @@
         /* 新对话 */
         h += accItem('set.conv', '新对话',
             swRow('autoBootstrap', '新对话注入', '打开新对话时自动把协议信息排进队列', cfg.autoBootstrap !== false) +
-            swRow('injectManual', '注入手册全文', '附带完整手册，而不是简版', cfg.injectManual !== false) +
+            swRow('injectManual', '注入手册全文', '默认只发手册目录卡（按节现取）；打开则首轮连全文一起发', cfg.injectManual === true) +
             '<div class="set btns"><button class="btn sm" data-a="copyInject">复制注入内容</button>' +
             '<button class="btn sm" data-a="resetInject">重置注入记录</button></div>');
 
@@ -14056,7 +14253,7 @@
             '回执状态码：OK / AUTO / PARTIAL / NOOP / SKIP / DENY。\n' +
             '检查点：' + esc(ckpt ? (fmtClock(ckpt.at) + ' · ' + ckpt.batches + ' 批次 · ' + ckpt.files + ' 文件') : '本会话暂无检查点') +
             '</span></span></div>' +
-            '<div class="set col"><span class="lb">存储键<span class="sub">容器树（同步层，始终在油猴存储）：fs:head　fs:base:<seq>　fs:log:<seq>　undo:<seq> + undo:idx　trash　bootstrap:last\n内容（介质可换，见「容器存放位置」）：fs:blob:<hash>　→　油猴存储时就是它；OPFS 时是沙盒里的 blobs/<hash>；自己的文件夹时是 <文件夹>/.dsw/blobs/<hash>，另外每个活文件还按原路径镜像一份\n跨平台小状态（油猴存储）：outbox　rate　ui:cfg　ui:ball-pos\n会话状态（IndexedDB，按 origin）：anchor:<会话>　pathtok:<会话>　gate:<会话>　ckpt:<会话>　msgs:<会话>　plan:<会话>　bootstrap:<会话>\n句柄（IndexedDB）：dsw2-fsa/h/container　→　你绑定的文件夹（换文件夹会覆盖）</span></span></div>');
+            '<div class="set col"><span class="lb">存储键<span class="sub">容器树（同步层，始终在油猴存储）：fs:head　fs:base:<seq>　fs:log:<seq>　undo:<seq> + undo:idx　trash　bootstrap:last\n内容（介质可换，见「容器存放位置」）：fs:blob:<hash>　→　油猴存储时就是它；OPFS 时是沙盒里的 blobs/<hash>；自己的文件夹时是 <文件夹>/.dsw/blobs/<hash>，另外每个活文件还按原路径镜像一份（系统区除外，不写到文件夹）\n跨平台小状态（油猴存储）：outbox　rate　ui:cfg　ui:ball-pos\n会话状态（IndexedDB，按 origin）：anchor:<会话>　pathtok:<会话>　gate:<会话>　ckpt:<会话>　msgs:<会话>　plan:<会话>　bootstrap:<会话>\n句柄（IndexedDB）：dsw2-fsa/h/container　→　你绑定的文件夹（换文件夹会覆盖）</span></span></div>');
 
         h += '</div>';
         appendHTML(body, h);
@@ -14948,6 +15145,16 @@
         DSW.ICONS = ICONS;
         DSW.PLATFORM = PLATFORM;
         DSW.COMMANDS = COMMANDS;
+        // 11b 手册投喂层：分节 / 目录 / 按需取 / 错点补课 / 冷启动微课（便于直测）
+        DSW.manual = {
+            sections: manualSections,
+            toc: manualTOC,
+            find: findManualSection,
+            hintLine: manualHintLine,
+            lesson: microLessonText,
+            lessons: MICRO_LESSONS,
+            reset: resetManualFeed
+        };
         DSW.plan = {
             enter: enterPlanMode, exit: exitPlanMode, active: isPlanModeActive,
             status: planStatusText, progress: planProgress, items: parsePlanItems, path: SYS_PLAN_PATH,
@@ -15086,6 +15293,8 @@
             VirtualFS.init();
             // P3b-2b：容器树就位后，把用户文件夹里被改过/新增的文件读回来（只有文件夹介质才做）
             try { await VirtualFS.syncFromFolder(); } catch (e) { warn('从文件夹读回失败：', e && e.message); }
+            // 2.10.0：系统区不再镜像进用户文件夹；顺手清掉旧版可能留下的 __sys 副本
+            try { VirtualFS.purgeSystemMirror(); } catch (e) { warn('清理文件夹里的系统区失败：', e && e.message); }
             Ckpt.load();
             outboxLoad();
             exposeForTesting();
