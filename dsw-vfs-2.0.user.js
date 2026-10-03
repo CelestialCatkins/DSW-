@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.9.1
-// @description  AI 对话容器工作区 2.0：执行域协议 [[dsw]] + 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源
+// @version      2.9.2
+// @description  AI 对话容器工作区 2.0：执行域协议 [[dsw]] + 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
 // @match        https://deepseek.com/*
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.9.1';
+    const VERSION = '2.9.2';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -99,6 +99,12 @@
         // —— 幂等（§7）——
         IDEMPOTENT_WINDOW_MS: 90000,
         MSG_LEDGER_PREFIX: 'dsw2:msgs:',   // 「已处理回复」账本：按会话存，见 14-runtime 的 A 根因修复
+
+        // —— 自愈额度（§5）——
+        // 冒险型自愈 = 锚点漂移重定位、edit 模糊匹配（都会「猜」）。
+        // 额度**按命令**计：整批共用一次时，一条命令用掉后，同批后面本该自愈的命令只能直接失败
+        // （反馈：一批里前一条锚点漂移，后面那条 edit 就再也等不到模糊匹配）。
+        RISKY_HEALS_PER_CMD: 1,
 
         // —— 出生证明（§7）——
 
@@ -4160,10 +4166,21 @@
             if (!n2) return { ok: false, op: 'edit', path: v.path, error: '文件不存在：' + v.path };
             const cur = n2.content.split('\n');
             const newBlock = String(newContent).split('\n');
-            // 契约（手册 §4）：新内容没带行首缩进而原文有 → 按原文补回，并在回执里明说（问题 C）
-            const ind = blockIndentOf(cur.slice(a - 1, b));
+            // 契约（手册 §4）：新内容没带行首缩进而原文有 → 按原文补回，并在回执里明说。
+            // 行数一一对应时逐行沿用**原文对应行**的缩进（与 fuzzyEdit 同策略）——只补公共缩进会把块内嵌套
+            // 拍平（`return 1;` 在第 3 层却只剩第 2 层的缩进）；行数不同时才退到公共缩进平移。
+            const oldBlock = cur.slice(a - 1, b);
+            const ind = blockIndentOf(oldBlock);
             const reindent = (ind && !blockIndentOf(newBlock)) ? ind : '';
-            const aligned = reindent ? newBlock.map(function (l) { return l ? reindent + l : l; }) : newBlock;
+            const reindentPerLine = !!(reindent && oldBlock.length === newBlock.length);
+            const aligned = reindent ? newBlock.map(function (l, i) {
+                if (!l.trim()) return l;
+                if (reindentPerLine) {
+                    const m = /^[ \t]*/.exec(String(oldBlock[i]))[0];
+                    return m + l.replace(/^[ \t]*/, '');
+                }
+                return reindent + l;
+            }) : newBlock;
             const next = cur.slice(0, a - 1).concat(aligned).concat(cur.slice(b));
             const joined = next.join('\n');
             if (byteLen(joined) > CONFIG.MAX_FILE_SIZE) return { ok: false, op: 'edit', path: v.path, error: '编辑后超过单文件上限' };
@@ -4171,7 +4188,7 @@
             n2.mtime = Date.now();
             return {
                 ok: true, op: 'edit', path: v.path, size: byteLen(joined), range: [a, b],
-                reindent: reindent || null, reindentPerLine: !!reindent,
+                reindent: reindent || null, reindentPerLine: reindentPerLine,
                 changes: [v.path], context: buildCtx(next, a, a + aligned.length - 1, 2),
                 oldLines: cur.length, newLines: next.length
             };
@@ -4741,6 +4758,8 @@
         rollbackBatch: rollbackBatch,
         batchRemember: batchRemember,
         inBatch: inBatch,
+        batchDepth: function () { return batchStack.length; },                       // 单命令存点用：批栈当前深度
+        batchMutated: function () { return batchStack.length ? !!batchStack[batchStack.length - 1].mutated : false; },   // 当前顶层批次是否真的写过
         read: fsRead,
         readRaw: fsReadRaw,
         list: fsList,
@@ -6049,8 +6068,18 @@
         const text = String(body == null ? '' : body);
         if (!text.trim()) return '';
         const notes = [];
+        // 只统计「像强调」的标记：出现在词边界（前/后是空白、标点或串首尾）的那种。
+        // 旧写法是纯奇偶计数，`a__b__c__d`、`x__y` 这类标识符里的连续下划线会被当成「成对 __ 只出现 N 次」误报。
+        // 三反引号围栏与行内代码里的内容平台当字面量不改写，一并跳过（手册本就要求正文包围栏）。
+        const stripped = text.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+        const isBoundary = function (ch) { return ch === '' || /[^\w]/.test(ch); };
         for (const mk of ['**', '__']) {
-            const n = (text.split(mk).length - 1);
+            let n = 0;
+            for (let i = stripped.indexOf(mk); i !== -1; i = stripped.indexOf(mk, i + mk.length)) {
+                const before = i === 0 ? '' : stripped[i - 1];
+                const after = stripped[i + mk.length] || '';
+                if (isBoundary(before) || isBoundary(after)) n++;
+            }
             if (n % 2 === 1) notes.push('成对 ' + mk + ' 只出现 ' + n + ' 次（可能被平台吞了一半）');
         }
         const rows = text.split('\n');
@@ -6166,6 +6195,8 @@
     function executeCmd(cmd, ctx) {
         const cwd = ctx.cwd || '/';
         ctx.heals = ctx.heals || 0;
+        // §5：冒险型自愈的额度按命令重算 —— 每条命令各有一次机会，不再整批共用一次
+        ctx.riskyHeals = 0;
         // 令牌展开先于一切路径解析（计划命令不吃路径，放行即可）
         let tokenHeal = '';
         if (cmd.op !== 'plan') {
@@ -6196,8 +6227,8 @@
             if (!res.ok) return fail(cmd, cmd.anchor, res.error, { candidates: res.candidates, fix: res.fix, kind: 'anchor' });
             path = res.path;
             if (res.relocated) {
-                if (ctx.riskyHeals >= 1) {
-                    return fail(cmd, path, '锚点 ' + cmd.anchor + ' 已漂移（L' + res.relocated[0] + '→L' + res.relocated[1] + '），但本批已用过一次自愈', { kind: 'anchor', fix: 'read ' + path + ' 后再改' });
+                if (ctx.riskyHeals >= CONFIG.RISKY_HEALS_PER_CMD) {
+                    return fail(cmd, path, '锚点 ' + cmd.anchor + ' 已漂移（L' + res.relocated[0] + '→L' + res.relocated[1] + '），但这条命令已用过一次自愈', { kind: 'anchor', fix: 'read ' + path + ' 后再改' });
                 }
                 ctx.riskyHeals++;
                 ctx.heals++;
@@ -6869,8 +6900,8 @@
                 ' → ' + fmtSize(r.size) + ' (' + r.oldLines + '→' + r.newLines + 'L) ' + inlineDiffNote(oldStr, newStr)
         };
         if (r.fuzzy) {
-            if (ctx.riskyHeals >= 1) {
-                return fail(cmd, path, '精确匹配失败，需要模糊匹配但本批已用过一次自愈', { kind: 'match', fix: 'read ' + r.path + ' 后按其当前内容重试' });
+            if (ctx.riskyHeals >= CONFIG.RISKY_HEALS_PER_CMD) {
+                return fail(cmd, path, '精确匹配失败，需要模糊匹配但这条命令已用过一次自愈', { kind: 'match', fix: 'read ' + r.path + ' 后按其当前内容重试' });
             }
             ctx.riskyHeals++;
             ctx.heals++;
@@ -7463,7 +7494,39 @@
                     if (ctx.atomic && !firstError) { firstError = results[results.length - 1]; stopAt = ci; break; }
                     continue;
                 }
-                const r = executeCmd(cmd, ctx);
+                /* 单命令存点（§9 写放大 / 副作用透明）：会改树的命令各套一层嵌套批次。
+                 *   一条命令写到一半失败时只回滚这一条 —— 同批已成功的命令照常保留。
+                 *   旧行为：非 atomic 批里失败命令的半个写入会留到整批提交，回执却只说「这条失败」。
+                 *   undo/redo 例外：它们自己管撤销游标，交给批级回滚更稳。 */
+                const spBase = (touchesFs && cmd.op !== 'undo' && cmd.op !== 'redo') ? VirtualFS.batchDepth() : -1;
+                if (spBase >= 0) VirtualFS.beginBatch();
+                let r;
+                try {
+                    r = executeCmd(cmd, ctx);
+                } catch (e) {
+                    errlog('executeCmd threw:', e);
+                    if (spBase >= 0) while (VirtualFS.batchDepth() > spBase) VirtualFS.rollbackBatch();
+                    const bad = {
+                        ok: false, op: cmd.op || '?', path: cmd.path || '', line: cmd.line, kind: 'internal',
+                        error: '内部错误：' + (e && e.message ? e.message : String(e))
+                    };
+                    if (isDry) bad.dry = true;
+                    noteAttempt(bad);
+                    results.push(bad);
+                    if (ctx.atomic) { if (!firstError) { firstError = bad; stopAt = ci; } break; }
+                    continue;      // 非 atomic：只废这一条，同批其余命令继续跑
+                }
+                if (spBase >= 0) {
+                    // 先收拢命令自己漏开的子批次，再决定这一条是「提交」还是「回滚」
+                    while (VirtualFS.batchDepth() > spBase + 1) VirtualFS.commitBatch();
+                    if (r && r.ok) {
+                        VirtualFS.commitBatch();
+                    } else {
+                        const mutated = VirtualFS.batchMutated();
+                        VirtualFS.rollbackBatch();
+                        if (r && mutated) r.sideEffectsRolledBack = true;   // 半成品已回滚，回执里明说
+                    }
+                }
                 r.line = cmd.line;
                 r.op = r.op || cmd.op;
                 if (cmd.bare) r.bare = true;
@@ -7753,6 +7816,8 @@
             }
             const head2 = '✗ ' + (r.op || '?') + ' ' + (r.path || '') + ' ' + (r.error || '失败');
             detail.push(head2.trim());
+            // 单命令存点回滚：这条命令写到一半的改动已被撤掉（同批其它命令不受影响），不能不说
+            if (r.sideEffectsRolledBack) detail.push('  ⤺ 这条命令写到一半的改动已回滚（同批其它命令不受影响）');
             if (r.detail && r.detail.length) for (const d of r.detail) detail.push('  ' + d);
             if (r.candidates && r.candidates.length) {
                 for (const c of r.candidates.slice(0, 2)) {
@@ -7945,13 +8010,15 @@
             '2. ⚠ **正文里若有一整行的 `<<<` / `>>>`，它会提前闭合正文** —— 后面的正文被当成命令行，回执里是一串「未知命令」。两种对策：',
             '   · 定界符加长：`<<<<<` 开、`<<<<<` 关（正文里的 `<<<` 就安全了）；',
             '   · **base64 通道**：`write /路径 base64` + 一行 base64 正文。正文不经过聊天渲染层，`<<<`、反引号、缩进全部免疫 —— 含 JS/CSS 的正文首选。',
-            '3. **行首空白**：脚本取的是 DOM 文本（不是渲染文本），能挡住浏览器折行，**挡不住平台在渲染阶段就吞掉行首空白**。含代码 / 缩进 / 行首 `#` `-` `>` / 成对 `__` `**` 的正文，一律在里面再包一层三反引号围栏（围栏内是字面量，平台不改写）：',
+            '3. **行首空白与转义改写（硬规则）**：脚本取的是 DOM 文本（不是渲染文本），能挡住浏览器折行，**挡不住平台在渲染阶段就吞掉行首空白、改写 `__` `**` `*` `_` `[x](y)` 这类标记**。所以**只要正文里含以下任一，就必须在正文里再包一层三反引号围栏**（围栏内是字面量，平台不改写）：行首缩进 / 代码 / 行首 `#` `-` `>` / 行首「数字.」（有序列表）/ `<` `>`（HTML）/ `[链接](…)` / 成对或疑似成对的 `__` `**` `*` `_` / 反斜杠转义 / 竖线表格。',
             '   `write /a.py` → 换行 → `<<<` → 换行 → 三反引号 + `python` → 换行 → `def __init__(self):` → 换行 → 「四空格 + `pass`」→ 换行 → 三反引号 → 换行 → `<<<`。',
-            '   不包围栏时：`__init__` 会变成 `init`（成对下划线被当强调吞掉）、行首缩进丢失、行首 `#` `-` `>` 被当 Markdown 吃掉。',
+            '   不包围栏时：`__init__` 会变成 `init`（成对下划线被当强调吞掉）、`[i]` 会变成 `iii`（当斜体吞掉方括号）、行首缩进丢失、行首 `#` `-` `>` 「数字.」被当 Markdown 吃掉。**含 JS/CSS/正则等大量特殊字符的正文，首选 `write /路径 base64`** —— 它不经过聊天渲染层，缩进、`__`、反引号、`<<<` 全部免疫。',
             '',
             '**正文相关的其它事实**：',
             '',
             '- `edit` 走模糊匹配时：原文有缩进、片段没有 → 按原文缩进补回，回执标 `⚠…已按原文补回 N 个空白字符`；两边都没有缩进（heredoc 已被平台吞）→ 回执明说「未做补回」，不会默默接受 —— 这时改用内联 `edit` 或占位符。',
+            '- **冒险型自愈按命令计额度**：锚点重定位、`edit` 模糊匹配这类「猜」的自愈，**每条命令各有一次**机会（不再是整批共用一次）；同批里前一条用掉了，不影响后一条。',
+            '- **单命令存点**：会改树的命令各自带一层自己的存点 —— 一条命令写到一半失败时，它自己的半个改动**已被单独回滚**，同批已成功的命令照常保留。非 atomic 批也不会留下「说失败却写了一半」的幽灵副作用（回执在该条下加一行 `⤺ 已回滚`）。',
             '- **删行用 `rmline /路径 12-15`**（或 `rmline #锚点`）：它只吃行区间、**不需要正文** —— 空 heredoc 恰恰是平台最容易吃掉的东西。',
             '- **写多个文件用 `apply`**（一条命令一个来回是最大的浪费）：正文里每个文件以一行 `@@ /路径` 分节，直到下一个 `@@ ` 为止，一批最多 20 个文件；整批原子，有一个失败就全部回滚，回执逐文件给 `hash=`。',
             '- `patch` 只认标准 unified diff（正文里必须有 `@@ -a,b +c,d @@` 头）；不小心写成双段也不报死：按 `edit` 双段执行，并在回执标 `⚠`。',
@@ -8005,7 +8072,7 @@
             '- `read #a3f` 读**锚点所在行 ±3 行**（带行号）。要更大范围有两种写法：',
             '  · 相对：`read #a3f 20` = 锚点行起往下共 20 行；`read #a3f -10` = 锚点行起往上共 10 行（定位一段函数体比 ±3 够用）。',
             '  · 绝对：`read #a3f 120-160` = 该文件的第 120-160 行（**显式行区间优先**，`#a3f` 只用来确定是哪个文件）。',
-            '- 文件变了会自动重定位（唯一命中），回执标 `⚠锚点重定位 L12→L15`。',
+            '- 文件变了会自动重定位（唯一命中），回执标 `⚠锚点重定位 L12→L15`（这类冒险型自愈每条命令各有一次额度，见 §2）。',
             '- ❌ `edit /src/util.js 12-15` 直接写行号 → 文件一改就漂移。优先用锚点。',
             '',
             '### 4.2 路径令牌 `@p1`（管「哪个文件」）',
@@ -8040,6 +8107,7 @@
             '| `✓` `+` `-` `~` | 成功（读 / 新增 / 删除 / 修改） |',
             '| `◦ dry …` | 这条没有落盘（它所在的域写了 `dry`）；读命令标「预演：dry 结束即回滚」，写命令标「只校验，未写入」 |',
             '| `↩ …（已回滚）` | 原子批次回滚了 |',
+            '| `⤺` | 单命令失败：它写到一半的改动已被单独回滚（同批其它命令不受影响） |',
             '| `↶ …` / `↷ …` | `undo` / `redo` 的结果（写明回到第几档、这一趟动了哪些路径） |',
             '| `♻ restore …` | 从回收站取回 |',
             '| `✗ …` | 失败，下面自带候选与「改法」 |',
@@ -8217,7 +8285,7 @@
             'read /',
             '[[/dsw]]',
             '',
-            '- 命令格式：每行一条，`操作 路径 [参数]`；多行正文用 `<<<` 开头、`<<<` 收尾，例如 `write /a.md` 换行 `<<<` 换行 内容 换行 `<<<`。正文里若含**一整行** `<<<` 会提前闭合正文 —— 改用更长的 `<<<<<`（开、关都比正文里的长），或 `write /路径 base64` 把正文编码传入（含 JS/CSS 等特殊字符时首选）。',
+            '- 命令格式：每行一条，`操作 路径 [参数]`；多行正文用 `<<<` 开头、`<<<` 收尾，例如 `write /a.md` 换行 `<<<` 换行 内容 换行 `<<<`。正文里若含**一整行** `<<<` 会提前闭合正文 —— 改用更长的 `<<<<<`（开、关都比正文里的长），或 `write /路径 base64` 把正文编码传入（含 JS/CSS 等特殊字符时首选）。正文含代码 / 缩进 / 行首 `# - > 数字.` / 成对或疑似成对的 `__` `**` 时，**必须**在正文里再包一层三反引号围栏，否则平台会吞缩进、把 `__init__` 改成 `init`。',
             '- 只认这一套写法：域外的命令行，以及 `[read: /a]`、`§`、`fs` 围栏裸命令等旧写法，都不执行。**不记得命令就查，别猜**：`help` 按类别列出全部命令，`help <命令>` 给用法与常见坑（如 `help edit`）。',
             '- `[[dsw atomic]]` = 任一失败则整条消息全部回滚（消息级）；`[[dsw dry]]` = 只校验不写盘（只作用于它自己那个域）。',
             '- 回执里的两个令牌可以直接当路径用：`#a3f` 指向某一行（`edit #a3f <<<…<<<`；`read #a3f` 读该行 ±3 行，`read #a3f 20` 往下 20 行、`read #a3f -10` 往上 10 行），`@p1` 指向某个文件（`read @p1` / `edit @p1 "旧" "新"` / `merge /out @p1 @p2`）。',
