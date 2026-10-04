@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.13.1
+// @version      2.13.2
 // @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.13.1';
+    const VERSION = '2.13.2';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -768,6 +768,54 @@
             });
         }
 
+        /* ============ 2.13.2：手机文件夹（File System Access）提速 ============
+         * 之前的写法是「一条一条 await」：搬 N 个 blob 要 N 轮 getFileHandle → createWritable
+         * → write → close，镜像 N 个文件还要**每个文件重新走一遍 getDirectoryHandle 目录链**。
+         * 手机存储上每一步都是真IO（手机上往往一次 5~30ms），串起来就是几十秒起步。
+         * 三处改动，都不改变语义（权限失败仍回队、不丢内容）：
+         *   1) FSA_CONCURRENCY 路并发：IO 等待彼此重叠，串行变并行；
+         *   2) 目录句柄缓存：同一个目录只 getDirectoryHandle 一次，而不是每个文件一次；
+         *   3) 批量取（splice 一批再跑），失败只把**真正没完成**的那几条放回队头，顺序不变。 */
+
+        // 手机存储不适合开太大：并发太高反而互相抢 IO，还会同时开太多可写句柄
+        const FSA_CONCURRENCY = 6;
+        const FSA_BATCH = 64;
+
+        /* 有界并发跑一批任务，并把「权限掉了」和「真失败」分开。
+         * 返回 states：2=成功 3=权限失败 4=真失败 0/1=没轮到/刚起步。
+         * 调用方据此把 states!==2 的任务原样放回队头（顺序保持不变）。 */
+        function poolRun(items, task, onFail) {
+            const states = new Array(items.length).fill(0);
+            if (!items.length) return Promise.resolve({ stopped: false, states: states });
+            let cursor = 0, stopped = false;
+            async function loop() {
+                for (;;) {
+                    if (stopped) return;
+                    const i = cursor++;
+                    if (i >= items.length) return;
+                    states[i] = 1;
+                    try {
+                        await task(items[i], i);
+                        states[i] = 2;
+                    } catch (e) {
+                        if (isPermErrorShared(e)) { states[i] = 3; stopped = true; return; }
+                        states[i] = 4;
+                        if (onFail) { try { onFail(items[i], i, e); } catch (x) {} }
+                    }
+                }
+            }
+            const n = Math.min(FSA_CONCURRENCY, items.length);
+            return Promise.all(Array.from({ length: n }, loop)).then(function () { return { stopped: stopped, states: states }; });
+        }
+
+        // poolRun 要在 impl 之外用，所以权限判定也提到模块层（与 fsaImpl 内部那一份同口径）
+        function isPermErrorShared(e) {
+            const n = String(e && e.name ? e.name : '');
+            const m = String(e && e.message ? e.message : e);
+            return n === 'NotAllowedError' || n === 'SecurityError'
+                || /permission|denied|not allowed|notallowed|security|权限|授权/i.test(m);
+        }
+
         function fsaImpl(handle) {
             const mem = new Map();
             const queue = [];
@@ -777,6 +825,9 @@
             let blobDir = null;
             let flushing = null;
             let timer = null;
+            // 目录句柄缓存：相对目录路径 -> FileSystemDirectoryHandle。
+            // 镜像 200 个文件时以前要 200×深度 次 getDirectoryHandle，现在只跟目录数有关。
+            const dirCache = new Map();
             // 真实文件镜像队列：相对路径 -> 内容（undefined 表示删除）
             const mirrorQ = new Map();
             let mirrorTimer = null;
@@ -786,16 +837,29 @@
             let deferredCount = 0;          // 因为权限到期被「放回队列」没写的次数
             let flushDeferred = false, mirrorDeferred = false;
 
-            /* 权限掉了和「写坏了」必须分开对待：
-             * 写坏了重试也没用，记一笔继续；权限掉了是**暂时**写不进去，
-             * 任务必须放回队里等授权回来再写 —— 直接丢掉的话，内存里还在，
-             * 但重新打开页面是从磁盘读的，那份内容就真的没了。 */
-            function isPermError(e) {
-                const n = String(e && e.name ? e.name : '');
-                const m = String(e && e.message ? e.message : e);
-                return n === 'NotAllowedError' || n === 'SecurityError'
-                    || /permission|denied|not allowed|notallowed|security|权限|授权/i.test(m);
+            /* 逐段拿目录句柄（带缓存）。只建目录、不存在报错 —— getDirectoryHandle(create:true)
+             * 幂等，重复调用不会重复落盘，但每次都是一次 IPC 往返，所以缓存很值钱。 */
+            async function dirFor(segs) {
+                let d = handle, cur = '';
+                for (let k = 0; k < segs.length; k++) {
+                    cur = cur ? cur + '/' + segs[k] : segs[k];
+                    let c = dirCache.get(cur);
+                    if (!c) { c = await d.getDirectoryHandle(segs[k], { create: true }); dirCache.set(cur, c); }
+                    d = c;
+                }
+                return d;
             }
+
+            // 目录被删了就连带丢掉它下面的缓存句柄（否则会拿着已删除目录的句柄一直失败）
+            function dropDirCache(prefix) {
+                for (const k of Array.from(dirCache.keys())) {
+                    if (k === prefix || k.indexOf(prefix + '/') === 0) dirCache.delete(k);
+                }
+            }/* 权限掉了和「写坏了」必须分开对待：
+         * 写坏了重试也没用，记一笔继续；权限掉了是**暂时**写不进去，
+         * 任务必须放回队里等授权回来再写 —— 直接丢掉的话，内存里还在，
+         * 但重新打开页面是从磁盘读的，那份内容就真的没了。
+         * （判定函数提到模块层的 isPermErrorShared，供并发池与 impl 共用同一口径。） */
 
             function scheduleFlush(delay) {
                 if (timer) return;
@@ -808,36 +872,40 @@
                 const jobs = Array.from(mirrorQ.entries());
                 mirrorQ.clear();
                 mirrorDeferred = false;
-                for (let i = 0; i < jobs.length; i++) {
-                    const rel = jobs[i][0], content = jobs[i][1];
+                if (!jobs.length) return;
+                const res = await poolRun(jobs, async function (job) {
+                    const rel = job[0], content = job[1];
                     const segs = String(rel).split('/').filter(Boolean);
-                    if (!segs.length) continue;
-                    try {
-                        let d = handle;
-                        for (let k = 0; k < segs.length - 1; k++) d = await d.getDirectoryHandle(segs[k], { create: true });
-                        if (content === undefined) {
-                            // recursive：删除 __sys 这种目录时要连里面的文件一起删
-                            await d.removeEntry(segs[segs.length - 1], { recursive: true }).catch(function () {});
-                        } else {
-                            const fh = await d.getFileHandle(segs[segs.length - 1], { create: true });
-                            const w = await fh.createWritable();
-                            await w.write(content);
-                            await w.close();
-                        }
-                    } catch (e) {
-                        if (isPermError(e)) {
-                            // 剩下的（含当前这条）原样放回去，等授权回来再写
-                            for (let j = i; j < jobs.length; j++) mirrorQ.set(jobs[j][0], jobs[j][1]);
-                            mirrorDeferred = true;
-                            deferredCount++;
-                            mirrorLastError = '镜像到文件夹被浏览器拦下（权限到期？）：' + (e && e.message ? e.message : e);
-                            warn('FsMedia(fsa) 镜像被权限拦下，已放回队列：', rel);
-                            break;
-                        }
-                        mirrorFail++;
-                        mirrorLastError = '镜像到文件夹失败（' + rel + '）：' + (e && e.message ? e.message : e);
-                        warn('FsMedia(fsa) 镜像失败：', rel, e && e.message);
+                    if (!segs.length) return;
+                    const d = await dirFor(segs.slice(0, -1));
+                    const leaf = segs[segs.length - 1];
+                    if (content === undefined) {
+                        // recursive：删除 __sys 这种目录时要连里面的文件一起删
+                        const parentPath = segs.slice(0, -1).join('/');
+                        if (segs.length > 1) dropDirCache(parentPath + '/' + leaf); else dirCache.delete(leaf);
+                        await d.removeEntry(leaf, { recursive: true }).catch(function () {});
+                    } else {
+                        const fh = await d.getFileHandle(leaf, { create: true });
+                        const w = await fh.createWritable();
+                        await w.write(content);
+                        await w.close();
                     }
+                }, function (job, i, e) {
+                    mirrorFail++;
+                    mirrorLastError = '镜像到文件夹失败（' + job[0] + '）：' + (e && e.message ? e.message : e);
+                    warn('FsMedia(fsa) 镜像失败：', job[0], e && e.message);
+                });
+                // 真正没写成功的（权限失败的 + 还没轮到就停下的）原样放回队头，顺序不变
+                const back = [];
+                for (let i = 0; i < jobs.length; i++) if (res.states[i] !== 2) back.push(jobs[i]);
+                if (back.length) {
+                    for (let i = back.length - 1; i >= 0; i--) mirrorQ.set(back[i][0], back[i][1]);
+                }
+                if (res.stopped) {
+                    mirrorDeferred = true;
+                    deferredCount++;
+                    mirrorLastError = '镜像到文件夹被浏览器拦下（权限到期？），' + back.length + ' 项已放回队列';
+                    warn('FsMedia(fsa) 镜像被权限拦下，已放回队列：' + back.length + ' 项');
                 }
             }
 
@@ -849,21 +917,28 @@
                 }, 60);
             }
 
-            /* 把用户文件夹里的真实文件列出来（跳过 .dsw —— 那是容器的内部记录）。 */
+            /* 把用户文件夹里的真实文件列出来（跳过 .dsw —— 那是容器的内部记录）。
+             * 读取并发跑：目录枚举本身是串行的（for await），但 getFile().text() 是纯 IO，
+             * 串着等就是白等 —— 手机上几百个文件能差出十几倍。 */
             async function realList() {
                 const out = [];
                 async function walk(dir, prefix) {
                     if (!dir || !dir.values) return;
+                    const files = [];
                     for await (const e of dir.values()) {
                         if (!e || !e.name) continue;
                         const p = prefix + e.name;
                         if (e.kind === 'directory') {
                             if (p === DSW_DIR) continue;
-                            await walk(e, p + '/');
-                        } else {
-                            try { out.push({ path: p, content: await (await e.getFile()).text() }); } catch (x) {}
+                            await walk(e, p + '/');          // 子目录必须先建句柄（枚举本身仍是串行的）
+                            continue;
                         }
+                        files.push({ path: p, entry: e });
                     }
+                    if (!files.length) return;
+                    await poolRun(files, async function (f) {
+                        out.push({ path: f.path, content: await (await f.entry.getFile()).text() });
+                    }, function () { /* 单个文件读不到就跳过，与旧行为一致 */ });
                 }
                 await walk(handle, '');
                 return out;
@@ -874,9 +949,10 @@
                 flushing = (async function () {
                     flushDeferred = false;
                     while (queue.length) {
-                        const job = queue.shift();
-                        queued.delete(job.hash);
-                        try {
+                        // 一批一批地取：并发跑，但失败时能准确知道**哪几条真的没写完**
+                        const batch = queue.splice(0, FSA_BATCH);
+                        for (const j of batch) queued.delete(j.hash);
+                        const res = await poolRun(batch, async function (job) {
                             if (job.content === undefined) {
                                 await blobDir.removeEntry(job.hash).catch(function () {});
                                 delCount++;
@@ -887,19 +963,24 @@
                                 await w.close();
                                 putCount++;
                             }
-                        } catch (e) {
-                            if (isPermError(e)) {
-                                // 权限刚好在落盘途中到期 → 放回队头，等授权回来再写（绝不能丢）
-                                queue.unshift(job); queued.add(job.hash);
-                                flushDeferred = true;
-                                deferredCount++;
-                                lastError = '内容写入文件夹被浏览器拦下（权限到期？）：' + (e && e.message ? e.message : e);
-                                warn('FsMedia(fsa) 写入被权限拦下，已放回队列：', e && e.message);
-                                break;
-                            }
+                        }, function (job, i, e) {
                             failCount++;
                             lastError = '内容写入文件夹失败（' + String(job.hash).slice(0, 6) + '）：' + (e && e.message ? e.message : e);
                             warn('FsMedia(fsa) 写入失败：', e && e.message);
+                        });
+                        // 没写完的（权限失败的 + 还没轮到就停下的）放回队头，顺序不变、绝不丢
+                        const back = [];
+                        for (let i = 0; i < batch.length; i++) if (res.states[i] !== 2) back.push(batch[i]);
+                        if (back.length) {
+                            for (let i = back.length - 1; i >= 0; i--) { queue.unshift(back[i]); queued.add(back[i].hash); }
+                        }
+                        if (res.stopped) {
+                            // 权限刚好在落盘途中到期 → 等授权回来再写（flushDeferred 会阻止立刻死循环重试）
+                            flushDeferred = true;
+                            deferredCount++;
+                            lastError = '内容写入文件夹被浏览器拦下（权限到期？），' + back.length + ' 项已放回队列';
+                            warn('FsMedia(fsa) 写入被权限拦下，已放回队列：' + back.length + ' 项');
+                            break;
                         }
                     }
                 })();
@@ -917,13 +998,19 @@
                     if (perm !== 'granted') throw new Error('NEED_PERMISSION');
                     const dswDir = await handle.getDirectoryHandle(DSW_DIR, { create: true });
                     blobDir = await dswDir.getDirectoryHandle(BLOB_DIR, { create: true });
-                    // 全量读进内存：读路径必须同步（与 OPFS 实现同一条契约）
+                    dirCache.clear();
+                    // 全量读进内存：读路径必须同步（与 OPFS 实现同一条契约）。
+                    // 但**并发读** —— 以前一个一个 await，手机上几百个 blob 就是几百次串行等待。
                     if (blobDir.values) {
+                        const entries = [];
                         for await (const entry of blobDir.values()) {
-                            if (!entry || entry.kind !== 'file') continue;
-                            try { mem.set(entry.name, await (await entry.getFile()).text()); }
-                            catch (e) { warn('FsMedia(fsa) 读取失败：', entry.name, e && e.message); }
+                            if (entry && entry.kind === 'file') entries.push(entry);
                         }
+                        await poolRun(entries, async function (entry) {
+                            mem.set(entry.name, await (await entry.getFile()).text());
+                        }, function (entry, i, e) {
+                            warn('FsMedia(fsa) 读取失败：', entry.name, e && e.message);
+                        });
                     }
                     return true;
                 },
@@ -1357,6 +1444,17 @@
             flush: function () { ensureImpl(); return impl.flush ? impl.flush() : Promise.resolve(true); },
             // P3b-2：真实文件夹（FSA）。三个动作都必须由用户点击调用 —— 浏览器硬性要求
             bindDirectory: bindDirectory,
+            // 测试/直测用：等价 bindDirectory 但**不弹选择框、不写 IDB**，直接给定句柄。
+            // 用来量「ready 全量读 + 换介质」到底花多久（2.13.2 的提速就是按这条路径量的）。
+            adoptDirectory: async function (h) {
+                const f = fsaImpl(h);
+                await f.ready();
+                const moved = await switchTo(f, '文件夹');
+                CONFIG.FS_MEDIA = 'fsa';
+                readyPromise = Promise.resolve('fsa');
+                blocked = null;
+                return { name: h && h.name, moved: moved };
+            },
             grantDirectory: grantDirectory,
             unbindDirectory: unbindDirectory,
             handleName: handleName,
@@ -9140,7 +9238,7 @@
                     return {
                         action: 'none', cmds: [], level: 'STRICT', hintFenced: true,
                         hint: '代码块里看到 ' + parsed.fencedCmds + ' 条像命令的行，但没识别出执行域，本轮未执行；'
-                            + '请在代码块内用 <dsw> 开头、</dsw> 收尾（开头三个反引号 + dsw 也可以）'
+                            + '请在代码块内用 <dsw> 开头、</dsw> 收尾（开头三个反引号 + dsw 也可以）；2.13.2 优化手机文件夹（File System Access）的处理：文件内容落盘、真实文件镜像、启动全量读、文件夹读回**全部改成有界并发**（默认 6 路），并缓存目录句柄（以前镜像 200 个文件要 200×深度 次 getDirectoryHandle，现在只跟目录数有关）。手机存储上每次句柄操作都是真实IO，串行等就是白等：模拟每步 6ms 时，搬 200 个 blob 由 2.5s 降到 0.44s、镜像 120 个文件由 3.0s 降到 0.37s、读回由 1.27s 降到 0.37s。语义不变：权限到期仍把**没写完的**那几条原样放回队头（不丢内容、不改顺序），单条真失败仍只记一笔继续'
                     };
                 }
 
@@ -15736,6 +15834,13 @@
             terminateMark: TERMINATE_MARK
         };
         DSW.buildZip = buildZip;
+        // P3b 介质层（文件夹提速的直测入口：ready/flush/mirror 各要多久、掉了多少）
+        DSW.media = {
+            FsMedia: FsMedia,
+            syncFromFolder: fsSyncFromFolder,
+            mirrorToFolder: mirrorToFolder,
+            purgeSystemMirror: purgeSystemMirror
+        };
         DSW.parseUnifiedDiff = parseUnifiedDiff;
         DSW.similarity = similarity;
         DSW.levenshtein = levenshtein;
