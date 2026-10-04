@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.12.0
-// @description  AI 对话容器工作区 2.0：执行域协议 [[dsw]] + 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起
+// @version      2.13.0
+// @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
 // @match        https://deepseek.com/*
@@ -39,7 +39,7 @@
  * DSW-VFS 2.0 —— 按《DSW-VFS 2.0 · 脚本机制设计》实现
  *
  * 五条底层原则：
- *   P1 执行域显式化：只有 [[dsw]] … [[/dsw]] 内的行才会被执行，域外永不执行。
+ *   P1 执行域显式化：只有 ```dsw 围栏（或 <dsw> … </dsw>）内的行才会被执行，域外永不执行。
  *   P2 单一语法 + 定界正文：域内每行一条 `操作 路径 [参数]`，多行内容用 <<< … <<<。
  *   P3 锚点优先：可定位结果带 #令牌，定位与内容解耦，失效自动重定位。
  *   P4 契约在眼前：新对话**不自动发消息**——用户第一次点发送时把触发句 + 手册全文
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.12.0';
+    const VERSION = '2.13.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -5202,11 +5202,11 @@
     const COMMAND_HELP = {
         read: {
             syntax: 'read /路径 [行区间 | head=N | tail=N | -n | outline]  |  read #锚点 [N | -N]',
-            notes: ['read #锚点 读锚点行 ±3 行；read #锚点 20 读锚点行起往下共 20 行；read #锚点 -10 读锚点行起往上共 10 行', 'read <目录> 等价 list']
+            notes: ['read #锚点 读锚点行 ±3 行；read #锚点 20 读锚点行起往下共 20 行；read #锚点 -10 读锚点行起往上共 10 行', '长文件默认只给头尾并落盘全文；加 full（或 no-elide）一次给全，省一次二次读取', 'read <目录> 等价 list']
         },
         write: {
             syntax: 'write /路径 → <<< → 内容 → <<<   |   write /路径 base64 → <<< → base64 文本 → <<<',
-            notes: ['自动建父目录；有 hash= 可对账', 'base64 通道：正文含整行 <<< / >>> 或特殊字符时用它，正文不再经过聊天渲染层']
+            notes: ['自动建父目录；有 hash= 可对账', 'base64 通道：正文含整行 <<< / >>> 或特殊字符时用它，正文不再经过聊天渲染层', '--no-warn 关掉本条的正文体检告警（告警只是提醒，从不阻止写入）']
         },
         append: { syntax: 'append /路径 → <<< → 内容 → <<<   |   append /路径 base64 → <<< → base64 → <<<', notes: ['base64 用法同 write'] },
         edit: {
@@ -5238,20 +5238,20 @@
         undo: { syntax: 'undo [N]', notes: ['一个批次 = 一步；读批不占步；撤销≠删除'] },
         restore: { syntax: 'restore list  |  restore <序号|原路径|备份名>  |  restore purge' },
         grep: {
-            syntax: 'grep [路径] "关键词" [-i] [-e] [-v] [-l] [-c] [ext=js,md] [ctx=2] [limit=500]',
-            notes: ['无路径 = 从 / 搜（只排除 /__trash）', 'ctx=N 每处带前后 N 行上下文，回执里命中行带锚点、上下文行不带']
+            syntax: 'grep /路径 "关键词" [-i] [-e] [-v] [-l] [-c] [ext=js,md] [ctx=2] [limit=500]',
+            notes: ['路径必须写在搜索词前面（写成 grep "词" /路径 会报错，不会降级成全容器搜索）', '无路径 = 从 / 搜（只排除 /__trash）', 'grep 恒带行号，-n 不必写（写了只提示一句）', 'ctx=N 每处带前后 N 行上下文，回执里命中行带锚点、上下文行不带']
         },
         find: {
-            syntax: 'find [路径] "模式" [ext=] [depth=N] [dirs] [-i] [sort=mtime] [since=10m]',
-            notes: ['按文件名找（* ? **，默认递归）；找内容用 grep', 'sort=mtime 按改动时间倒序（最近改的在前）；since=10m / recent=2h 只看这段时间内改过的文件']
+            syntax: 'find /路径 "模式" [ext=] [depth=N] [dirs] [-i] [sort=mtime] [since=10m]',
+            notes: ['路径必须写在匹配式前面', '按文件名找（* ? **，默认递归）；找内容用 grep', 'sort=mtime 按改动时间倒序（最近改的在前）；since=10m / recent=2h 只看这段时间内改过的文件']
         },
         diff: { syntax: 'diff /a /b [-i]', notes: ['给差异处数 + 前几处，不必把两份全文都读进来'] },
         list: { syntax: 'list [路径] [recursive]' },
         stat: { syntax: 'stat /路径', notes: ['给 size/chars/lines/hash/mtime；目录给递归统计'] },
         cd: { syntax: 'cd /路径', notes: ['cwd 会影响相对路径；cd / 回根'] },
-        expect: { syntax: 'expect /路径 "必须出现的文本"' },
-        plan: { syntax: 'plan on|list|add <条目>|done|doing|todo|del <序号或文字>|clear', notes: ['plan off 只有用户能退'] },
-        upload: { syntax: 'upload /路径', notes: ['优先放进聊天附件，平台无入口时回退下载'] },
+        expect: { syntax: 'expect /路径 "必须出现的文本"', notes: ['后置断言：失败 → 本批已写入的内容自动回滚'] },
+        plan: { syntax: 'plan on|list|add <条目>|done|doing|todo <序号|last|文字>|del|clear', notes: ['last = 最后一条（可与 plan add 同批）', 'plan off 只有用户能退'] },
+        upload: { syntax: 'upload /路径  |  upload /目录  |  upload /a /b /c', notes: ['目录或多个路径 → 打成 zip 附件一次发出（平台无入口时回退下载）', '优先放进聊天附件，平台无入口时回退下载'] },
         help: { syntax: 'help  |  help <命令>', notes: ['不带参数列出全部命令；带参数给该命令的用法与坑'] },
         mkdir: { syntax: 'mkdir /路径' },
         redo: { syntax: 'redo [N]' }
@@ -5328,6 +5328,10 @@
         numeric: 'numeric', 数字: 'numeric',
         count: 'count', c: 'count',
         head: 'head', tail: 'tail',
+        // 2.13.0：read /f full（或 no-elide）→ 不省略中段，一次读完，不必再去 outbox 二次读取
+        full: 'full', 'no-elide': 'noElide', noelide: 'noElide', 全文: 'full', 完整: 'full',
+        // --no-warn：关掉本条命令的正文体检告警（误报时用，不影响真实错误）
+        'no-warn': 'noWarn', nowarn: 'noWarn', '不告警': 'noWarn',
         nl: 'nl',
         item: 'item', id: 'item',
         list: 'list', purge: 'purge',
@@ -5477,21 +5481,23 @@
 
     // 每个命令真正实现的开关（§3.8「错误即答案」）：命令没实现的开关**不许静默吞掉**。
     // 例：`list /d recursive` 以前既不递归也不报错（A10）；现在要么实现，要么回执标 ⚠ 说明已忽略。
+    // 2.13.0：被忽略的开关不再只留一句 ⚠ 就按成功返回 —— 这类命令一律降为 PARTIAL（详见 executeCmd）。
     const COMMAND_FLAGS = {
-        read: ['numbered', 'outline', 'lineRange', 'head', 'tail'],
+        // full / no-elide：长文件不再自动省略中段（省一次 outbox 二次读取）
+        read: ['numbered', 'outline', 'lineRange', 'head', 'tail', 'full', 'noElide'],
         // sep 是「双段定界的自定义分隔符」，任何带定界正文的命令都可能用它（手册 §3.4）
         // base64：正文以 base64 传入（绕开 `<<<` 提前闭合 / markdown 吞正文）
-        write: ['exclusive', 'sep', 'base64'],
-        append: ['exclusive', 'sep', 'base64'],
-        edit: ['all', 'lineRange', 'sep', 'ext', 'limit'],
+        write: ['exclusive', 'sep', 'base64', 'noWarn'],
+        append: ['exclusive', 'sep', 'base64', 'noWarn'],
+        edit: ['all', 'lineRange', 'sep', 'ext', 'limit', 'noWarn'],
         // insert：位置（行号/锚点）+ before/after + from=源路径（源区间由第二个行区间给出）
-        insert: ['lineRange', 'before', 'after', 'from', 'sep'],
+        insert: ['lineRange', 'before', 'after', 'from', 'sep', 'noWarn'],
         rmline: ['lineRange'],
-        apply: ['sep'],
-        patch: ['sep'],
+        apply: ['sep', 'noWarn'],
+        patch: ['sep', 'noWarn'],
         // merge：目标 + 任意多个源（源可以含 glob）；sort 决定 glob 源的拼接顺序
-        merge: ['force', 'sort', 'sep'],
-        split: ['sep', 'chunk', 'to', 'force'],
+        merge: ['force', 'sort', 'sep', 'noWarn'],
+        split: ['sep', 'chunk', 'to', 'force', 'noWarn'],
         sort: ['uniq', 'reverse', 'numeric', 'ignoreCase'],
         mkdir: [],
         move: ['force'],
@@ -5501,7 +5507,8 @@
         redo: [],
         restore: ['list', 'purge', 'item'],
         upload: [],
-        grep: ['regex', 'ignoreCase', 'files', 'count', 'invert', 'ext', 'limit', 'ctx'],
+        // grep 恒带行号（-n / numbered 写了也生效，写了只提示一句不必写）
+        grep: ['regex', 'ignoreCase', 'files', 'count', 'invert', 'ext', 'limit', 'ctx', 'numbered'],
         find: ['ignoreCase', 'ext', 'limit', 'depth', 'dirs', 'sort', 'since'],
         diff: ['ignoreCase', 'ctx', 'limit'],
         list: ['recursive', 'deep'],
@@ -5518,7 +5525,8 @@
     // 值为 undefined 的命令（edit / patch / plan / restore / expect）位置参数可以是任意多段
     // （正文、多词条目、序号+片段），不做这个检查。
     const POS_MAX = {
-        read: 0, write: 0, append: 0, mkdir: 0, delete: 0, upload: 0, undo: 0, redo: 0,
+        read: 0, write: 0, append: 0, mkdir: 0, delete: 0, undo: 0, redo: 0,
+        upload: 8,      // 2.13.0：upload 可一次给多个路径（打成 zip 附件）
         rmline: 0, apply: 0, insert: 0,
         list: 0, tree: 0, stat: 0, cd: 0, grep: 1, move: 1, copy: 1, help: 1, split: 1, sort: 0
     };
@@ -5543,7 +5551,7 @@
         return out;
     }
 
-    // 只认新标准：命令行必须写在 `[[dsw]] … [[/dsw]]` 执行域内。
+    // 只认新标准：命令行必须写在 ```dsw 代码围栏（或 <dsw> … </dsw>）执行域内。
     // 旧机制的 `[read: /a]` / `[write: /a]…[/write]` / `§` 闭合 / ```fs 围栏裸命令
     // 一律不再识别、不再归一化执行。下面这些正则只用来「明确拒绝 + 就地给出新写法」
     // （错误即答案：写旧语法的人要立刻拿到正确写法，而不是被静默当成别的命令）。
@@ -5584,24 +5592,30 @@
         t = t.split('\n').map(function (line) {
             return /[\[［【⟦<]\s*\/?\s*dsw\s*[\]］】⟧>]/i.test(line) ? toHalfWidthOutsideQuotes(line) : line;
         }).join('\n');
-        // 兼容别名 → 正典（大小写/空格）
-        t = t.replace(/[⟦【]\s*(\/?)\s*dsw\s*[⟧】]/gi, function (_, slash) { return '[[' + (slash || '') + 'dsw]]'; });
-        t = t.replace(/<\s*(\/?)\s*dsw\s*>/gi, function (_, slash) { return '[[' + (slash || '') + 'dsw]]'; });
-        t = t.replace(/=+\s*(\/?)\s*DSW\s*=+/gi, function (_, slash) { return '[[' + (slash || '') + 'dsw]]'; });
-        t = t.replace(/\[\[\s*(\/?)\s*dsw\s*/gi, function (_, slash) { return '[[' + (slash || '') + 'dsw'; });
+        // 2.13.0 协议标记换成主流 Agent 认得的两种（见 08-parser 的 DOMAIN_OPEN_RE 注释）：
+        //   ① ```dsw 代码围栏（首选，各家 Agent 的命令块就是这个形状）；
+        //   ② <dsw> … </dsw> 标签（与 <tool> / <function_calls> 同形状）。
+        // 这里只做同一形状内的归一（大小写 / 空格 / 全半角 / <//dsw>），**不做旧标记兼容** ——
+        // 旧标记（[[dsw]] / ⟦dsw⟧ / ===dsw===）由 legacyDomainLines 明确报错并给新写法（不静默）。
+        t = t.replace(/<\s*(\/{1,2})\s*dsw\s*>/gi, function (_, slash) { return '<' + (slash || '') + 'dsw>'; });
         return t;
     }
 
-    // 开标记：[[dsw]] / [[dsw atomic]] / [[dsw: atomic force]]
-    const DOMAIN_OPEN_RE = /^\[\[\s*dsw\s*(?:[:：]\s*)?([a-zA-Z ,，、]*?)\s*\]\]\s*$/;
-    // 闭标记：[[/dsw]] / [[//dsw]] / [[ / dsw ]]
-    const DOMAIN_CLOSE_RE = /^\[\[\s*\/{1,2}\s*dsw\s*\]\]\s*$/;
-    // 同一行写完开+闭（`[[dsw]][[/dsw]]`）= 空执行域。以前整行不匹配开标记 → hasDomain=false
+    // —— 执行域标记（2.13.0 起只认这两种，都是主流 Agent 工具块的形状）——
+    // 开标记：<dsw> / <dsw atomic dry force>
+    const DOMAIN_OPEN_RE = /^<\s*dsw\s*(?:[:：]\s*)?([a-zA-Z ,，、]*?)\s*>\s*$/;
+    // 闭标记：</dsw> / <//dsw> / < / dsw >
+    const DOMAIN_CLOSE_RE = /^<\s*\/{1,2}\s*dsw\s*>\s*$/;
+    // 同一行写完开+闭（`<dsw></dsw>`）= 空执行域。以前整行不匹配开标记 → hasDomain=false
     // → action=none → 连回执都没有（A11 的静默）；现在它照样算一个（空）执行域，交上层回 NOOP。
-    const DOMAIN_EMPTY_RE = /^\[\[\s*dsw\s*(?:[:：]\s*)?([a-zA-Z ,，、]*?)\s*\]\]\s*\[\[\s*\/{1,2}\s*dsw\s*\]\]$/;
-    // Markdown 围栏别名（等价接受，但启用 heredoc 感知的围栏安全规则）
-    const FENCE_OPEN_RE = /^(`{3,}|~{3,})\s*(dsw|dsl|vfs|container)\s*$/i;
+    const DOMAIN_EMPTY_RE = /^<\s*dsw\s*(?:[:：]\s*)?([a-zA-Z ,，、]*?)\s*>\s*<\s*\/{1,2}\s*dsw\s*>$/;
+    // Markdown 围栏：```dsw（推荐写法，也是各家 Agent 的命令块形状）。修饰符写在语言标签后面：
+    // ```dsw atomic dry``` —— 围栏与 <dsw> 修饰符语义完全一致。
+    const FENCE_OPEN_RE = /^(`{3,}|~{3,})\s*(dsw|dsl|vfs|container)(?:[ \t]+([a-zA-Z ,]*?))?[ \t]*$/i;
     const FENCE_CLOSE_RE = /^(`{3,}|~{3,})\s*$/;
+    // 旧协议标记（[[dsw]] / [⟦dsw⟧ / [dsw] / ===dsw=== / ---dsw---）：**不再识别为执行域**，
+    // 但必须明确报错并给新写法（硬约束 3：静默停摆次数必须为 0）。行级判定，不碰正文。
+    const LEGACY_MARK_LINE_RE = /^\s*(?:\[\[\s*\/?\s*dsw\b[\]］】]*|[\[［【⟦]\s*\/?\s*dsw\s*[\]］】⟧\]]|=+\s*\/?\s*dsw\s*=+|-{2,}\s*\/?\s*dsw\s*-{2,})\s*$/i;
     const HEREDOC_OPEN_RE = /^(<{3,})\s*([A-Za-z_\-\u4e00-\u9fa5]*)\s*$/;
     // 定界正文闭合符（§3.4）：`>>>` 与 `<<<` 等价，长度 ≥ 开始符长度。
     // 为什么必须再认 `<<<`：聊天页会把行首 `>>>` 当 Markdown 引用块渲染，innerText 里这三个字符
@@ -5615,24 +5629,28 @@
     const DOUBLE_SEP_LINE_RE = /^(?:={3,}|;{3,})$/;
     const DOUBLE_SEP_WORDS = /^(old|oldtext|old-text|原始|旧|before)$/i;
 
-    function parseDomainOpen(line) {
-        const t = line.trim();
-        const m = DOMAIN_OPEN_RE.exec(t);
-        if (!m) return null;
+    function parseMods(text) {
         const mods = {};
-        for (const w of String(m[1] || '').split(/[\s,，、]+/)) {
+        for (const w of String(text || '').split(/[\s,，、]+/)) {
             const w2 = w.trim().toLowerCase();
             if (!w2) continue;
             if (w2 === 'atomic' || w2 === 'force' || w2 === 'dry') mods[w2] = true;
         }
-        return { type: 'canonical', mods: mods };
+        return mods;
+    }
+
+    function parseDomainOpen(line) {
+        const t = line.trim();
+        const m = DOMAIN_OPEN_RE.exec(t);
+        if (!m) return null;
+        return { type: 'canonical', mods: parseMods(m[1]) };
     }
 
     function parseDomainClose(line) { return DOMAIN_CLOSE_RE.test(line.trim()); }
 
     function isFenceOpen(line) {
         const m = FENCE_OPEN_RE.exec(line.trim());
-        return m ? { fence: m[1] } : null;
+        return m ? { fence: m[1], mods: parseMods(m[3]) } : null;
     }
 
     // 围栏「闭合」判定：与开始符**同字符**且长度 ≥ 开始符。
@@ -5704,9 +5722,9 @@
                 : '';
             return {
                 ok: false, raw: line, kind: 'legacy-syntax', badOp: t,
-                syntax: '[[dsw]] → 操作 路径 [参数] → [[/dsw]]',
-                fix: oldHint + (newForm ? '（写进 [[dsw]] … [[/dsw]] 里）'
-                    : '；新标准：命令写进 [[dsw]] … [[/dsw]]，每行一条 `操作 路径 [参数]`')
+                syntax: '[read: /a] → read /a（写进 ```dsw 围栏里）',
+                fix: oldHint + (newForm ? '（写进 ```dsw 代码围栏里）'
+                    : '；新标准：命令写进 ```dsw 围栏，每行一条 `操作 路径 [参数]`')
             };
         }
         const prepared = preprocessOpColon(line);
@@ -5780,6 +5798,18 @@
             path = '';
         }
 
+        // 2.13.0 参数顺序写反的硬错（`grep -n "x" /a.html`）：搜索词占了路径位，
+        // 真路径退化成多余裸词 —— 以前它只留一句 ⚠ 就按「全容器搜索」跑完了（静默降级成成功）。
+        // 现在标出来，doGrep / doFind 直接报错并给正确顺序。
+        let misplacedPath = '';
+        if (norm.op === 'grep' || norm.op === 'find') {
+            // 只看**第二个**往后的裸词：第一个是搜索词 / 匹配式（它自己可以带 / 或 *）
+            for (const t of inline.slice(1)) {
+                if (!t || /[*?]/.test(t)) continue;
+                if (looksLikePathToken(t) && String(t) !== path) { misplacedPath = t; break; }
+            }
+        }
+
         // 无路径的默认值（§3.3 慷慨默认）
         if (!path) {
             if (norm.op === 'grep' || norm.op === 'find') path = '/';
@@ -5817,6 +5847,7 @@
             path: path,
             args: inline,
             flags: flags,
+            misplacedPath: misplacedPath,
             raw: line,
             body: null,
             pairs: null
@@ -5887,11 +5918,7 @@
             if (!open && !fence) {
                 const emp = DOMAIN_EMPTY_RE.exec(lines[i].trim());
                 if (emp) {
-                    const emods = {};
-                    for (const w of String(emp[1] || '').split(/[\s,，、]+/)) {
-                        const w2 = w.trim().toLowerCase();
-                        if (w2 === 'atomic' || w2 === 'force' || w2 === 'dry') emods[w2] = true;
-                    }
+                    const emods = parseMods(emp[1]);
                     domains.push({
                         ok: true, unclosed: false, atomic: !!emods.atomic, force: !!emods.force, dry: !!emods.dry,
                         startLine: i + 1, endLine: i + 1, rawText: '', fence: false, modsApplied: emods,
@@ -5905,7 +5932,7 @@
             }
 
             const isFence = !!fence;
-            const mods = open ? open.mods : {};
+            const mods = open ? open.mods : (fence ? fence.mods : {});
             const fenceMark = (isFence && fence && fence.fence) ? String(fence.fence) : '';
             const fenceTick = fenceMark ? fenceMark.charAt(0) : '';
             const fenceLen = fenceMark.length;
@@ -5923,7 +5950,7 @@
                     if (heredocCloseLen(t) >= need) { heredocDepth = 0; continue; }
                     // 自愈（§5 R3）：正文还没闭合就撞上闭标记 —— 闭标记优先。
                     // 否则「网页吃掉了行首 >>>」会让整域被判「未闭合」，一条命令都执行不了。
-                    // 只认 `[[/dsw]]`：围栏域里的 ``` 必须继续服从「正文内的 ``` 不闭合执行域」规则。
+                    // 只认 `</dsw>`：围栏域里的 ``` 必须继续服从「正文内的 ``` 不闭合执行域」规则。
                     if (!parseDomainClose(t)) continue;
                     heredocDepth = 0;
                     implicitClose++;
@@ -5934,9 +5961,9 @@
                     if (isFenceCloseFor(t, fenceTick, fenceLen)) { closeIdx = j; break; }
                     if (parseDomainClose(t)) { closeIdx = j; break; }
                 } else {
+                    // <dsw> 域：只认 </dsw> 闭合。域里出现代码围栏**不再**当成域的结束
+                    // （2.13.0：围栏本身就是推荐的域写法，AI 常在 <dsw> 里再写一层围栏示意）。
                     if (parseDomainClose(t)) { closeIdx = j; break; }
-                    const f2 = isFenceOpen(t);
-                    if (f2) { closeIdx = j; break; }
                 }
             }
             if (closeIdx < 0) {
@@ -6061,6 +6088,18 @@
             for (let i = d.startLine - 1; i <= d.endLine - 1; i++) domainLines.add(i);
         }
 
+        // 旧协议标记（[[dsw]] / ⟦dsw⟧ / ===dsw===）：**不再算执行域**，但也不能当没看见 ——
+        // ① 这些行占进 domainLines，域外的「读兵底」不会把里面的命令当裸命令执行；
+        // ② 记下来交给裁决层明确报错并给新写法（不静默、不兼容）。
+        const legacyMarks = [];
+        const allLines = text.split('\n');
+        for (let i = 0; i < allLines.length; i++) {
+            if (domainLines.has(i)) continue;
+            if (!LEGACY_MARK_LINE_RE.test(allLines[i])) continue;
+            legacyMarks.push({ line: i + 1, raw: allLines[i].trim() });
+            domainLines.add(i);
+        }
+
         const bare = scanBareCommands(text, { domainLines: domainLines });
 
         const cmds = [];
@@ -6077,6 +6116,7 @@
             hasDomain: domains.length > 0,
             domainCmds: cmds,
             unclosedDomains: extracted.unclosed,
+            legacyMarks: legacyMarks,
             bare: bare
         };
     }
@@ -6105,7 +6145,11 @@
     /* ---- 13：正文可疑检查（只警告，不拒绝） ----
      * 手册 §4 要求「含缩进 / 行首 # - > / 成对 ** __ 的正文必须包进三反引号围栏」——
      * 但脚本自己不检查，就等于这条契约没人执行。这里只做三条低误报的检查，命中就在回执里标 ⚠。
+     * 2.13.0：强调标记改成「**计数 + 落单位置**」双条件（奇数但落单在行中一律不报），
+     * 并给出 --no-warn 开关 —— 宁可少报，也要把真实告警的信任留给用户。
      */
+    const SUSPICIOUS_EMPHASIS_MAX = 12;      // 超过这么多处就不再用奇偶法判（奇偶已无判别力）
+
     function suspiciousBody(body) {
         const text = String(body == null ? '' : body);
         if (!text.trim()) return '';
@@ -6117,12 +6161,22 @@
         const isBoundary = function (ch) { return ch === '' || /[^\w]/.test(ch); };
         for (const mk of ['**', '__']) {
             let n = 0;
+            let oddAtLineEdge = false;
             for (let i = stripped.indexOf(mk); i !== -1; i = stripped.indexOf(mk, i + mk.length)) {
                 const before = i === 0 ? '' : stripped[i - 1];
                 const after = stripped[i + mk.length] || '';
-                if (isBoundary(before) || isBoundary(after)) n++;
+                if (!(isBoundary(before) || isBoundary(after))) continue;
+                n++;
+                // 2.13.0 降误报：奇数本身**不足以**判定被吞（长文里 29 处 `__` 也会是奇数，
+                // 而代码正文里成对标记本来就多，奇偶法在大数量上不可靠）。
+                // 只有「落单的那一个落在行首 / 行尾」才像被吞了一半（行中的落单更像正文字面量）。
+                const atEdge = before === '' || before === '\n' || after === '' || after === '\n'
+                    || stripped.charAt(i - 1) === '\n' || stripped.charAt(i + mk.length) === '\n';
+                if (atEdge) oddAtLineEdge = true;
             }
-            if (n % 2 === 1) notes.push('成对 ' + mk + ' 只出现 ' + n + ' 次（可能被平台吞了一半）');
+            if (n % 2 === 1 && n <= SUSPICIOUS_EMPHASIS_MAX && oddAtLineEdge) {
+                notes.push('成对 ' + mk + ' 共 ' + n + ' 处但有个落单在行首 / 行尾（可能被平台吞了一半；确认无误可加 --no-warn）');
+            }
         }
         const rows = text.split('\n');
         const pyish = /(^|\n)\s*(def|class)\s+\w/.test(text);
@@ -6347,16 +6401,19 @@
             const note = '命令名 ' + cmd.approx + ' → ' + (out.op || '命令') + '（按最接近的命令执行）';
             out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + note) : note;
         }
-        // 命令没实现的开关绝不静默（A10）：命令照常执行，但回执要说清「这个参数被忽略了」
+        // 命令没实现的开关绝不静默（A10）：命令照常执行，但回执要说清「这个参数被忽略了」；
+        // 2.13.0：而且**不再降级为成功** —— 这类命令一律标 partial，整批回执给 PARTIAL。
+        //   （以前只在 ⚠ 里提一句就按 ✓ AUTO 返回，AI 会以为「参数生效了」。）
         if (out && out.ok) {
             const unknown = unknownFlagsFor(cmd.op, cmd.flags, cmd.args);
             if (unknown.length) {
                 ctx.heals++;
                 // 域级修饰符写错位置的提示（dry/force/atomic 属于开标记，不属于命令行）
                 const mods = unknown.filter(function (k) { return k === 'dry' || k === 'force' || k === 'atomic'; });
-                const modHint = mods.length ? '（' + mods.join('、') + ' 要写在开标记里：[[dsw ' + mods.join(' ') + ']]）' : '';
+                const modHint = mods.length ? '（' + mods.join('、') + ' 要写在开标记里：```dsw ' + mods.join(' ') + '，或 <dsw ' + mods.join(' ') + '>）' : '';
                 const note = '参数 ' + unknown.join('、') + ' 本命令不认识，已忽略' + modHint;
                 out.selfHeal = out.selfHeal ? (out.selfHeal + '；' + note) : note;
+                out.partial = true;
             }
         }
         return out;
@@ -6405,11 +6462,15 @@
             lines = withAnchor.map(function (h) { return h.anchor + ' ' + h.line + '| ' + h.text; });
         } else {
             const all = String(r.raw).split('\n');
-            if (all.length > 60) {
+            // 2.13.0 `full` / `no-elide`：默认只给头尾 + 一句「去 outbox 二次读」，
+            // 那多出来的一轮往返经常比直接给全文还贵。写了 full 就一次给全（不再落盘）。
+            const wantFull = !!((flags && flags.full) || (flags && flags.noElide));
+            if (all.length > 60 && !wantFull) {
                 lines = buildCtxHeadTail(all).map(function (l, i) { return l; });
                 // 14：只给头尾时，全文落盘（/__sys/outbox/，AI 只读区），回执里直接给 read 路径
                 const sp = spillText('read-' + r.path.replace(/[^\w.-]+/g, '_'), r.raw);
-                lines.push('(共 ' + r.totalLines + ' 行 / ' + fmtSize(r.size) + '；用 read ' + r.path + ' 1-80 或 -n 带行号分段读'
+                lines.push('(共 ' + r.totalLines + ' 行 / ' + fmtSize(r.size) + '；用 read ' + r.path + ' 1-80 分段读，'
+                    + '或 read ' + r.path + ' full 一次读全'
                     + (sp ? '；全文已落盘：read ' + sp : '') + ')');
             } else {
                 lines = all.map(function (l) { return l; });
@@ -6445,6 +6506,15 @@
     function doGrep(cmd, path) {
         const flags = cmd.flags || {};
         const [pattern] = (cmd.args && cmd.args.length) ? cmd.args : [''];
+        // 2.13.0：`grep -n "x" /a.html` 这种「搜索词占了路径位」的写法不静默降级为全容器搜索。
+        if (cmd.misplacedPath) {
+            return fail(cmd, cmd.misplacedPath, '参数顺序不对：' + cmd.misplacedPath + ' 被当成了多余的搜索词，本次没有搜索',
+                {
+                    kind: 'syntax',
+                    syntax: 'grep /路径 "关键词" [-i] [-e] [-l] [-c] [-v] [ext=js,md] [ctx=2] [limit=500]',
+                    fix: '路径写在前面：grep ' + cmd.misplacedPath + ' "' + (pattern || '关键词') + '"（-n 无需写，grep 恒带行号）'
+                });
+        }
         if (!pattern) {
             return fail(cmd, path, '缺少搜索词', { kind: 'syntax', syntax: 'grep /路径 "关键词"', fix: 'grep /src "function "' });
         }
@@ -6458,13 +6528,17 @@
         // ctx 与 -l / -c 同用没有意义：不静默吞掉，回执里说明已忽略
         const ctxIgnored = (flags.ctx && (flags.files || flags.count))
             ? '参数 ctx 只作用于逐行结果，与 ' + (flags.files ? '-l' : '-c') + ' 同用时已忽略' : '';
+        // -n / numbered：grep 恒带行号（每个命中行都带行号），所以它不是「被忽略的参数」，
+        // 但也不能默默吞掉 —— 写一句「不必写」让 AI 下次省掉。
+        const nNote = flags.numbered ? '参数 -n 无需写：grep 恒带行号（本次已按带行号处理）' : '';
+        const heal = [ctxIgnored, nNote].filter(Boolean).join('；');
         if (!r.totalHits) {
             // 口径写清楚：grep 只跳过回收站，所以「0 个文件」说的范围要写明白
             // 17：不写「扫描 M 个文件」这种工程术语，直接说「查了 M 个，其中 K 个有命中」
             const scope = r.scanned
                 ? '查了 ' + r.scanned + ' 个文件，其中 0 个有命中（不含 ' + TRASH_PREFIX + '）'
                 : '没有可搜索的文件（' + TRASH_PREFIX + ' 不参与 grep）';
-            return { ok: true, op: 'grep', path: r.path, summary: 'grep ' + r.path + ' “' + pattern + '”' + opts + ' → 0 命中（' + scope + '）', body: [] };
+            return { ok: true, op: 'grep', path: r.path, summary: 'grep ' + r.path + ' “' + pattern + '”' + opts + ' → 0 命中（' + scope + '）', body: [], selfHeal: heal || undefined };
         }
         // -l：只列文件名（每个文件一行，不带行号）—— 找「哪些文件提到它」时最短
         //     行首发**路径令牌** @pN：下一轮 `read @pN` / `edit @pN …` 不必重打路径
@@ -6474,7 +6548,7 @@
                 ok: true, op: 'grep', path: r.path,
                 summary: 'grep “' + pattern + '”' + opts + ' → ' + r.files.length + ' 个文件有命中（' + r.totalHits + ' 处）',
                 body: r.files.map(function (f, i) { return (toks[i] ? toks[i] + '  ' : '') + f.path; }),
-                selfHeal: ctxIgnored || undefined
+                selfHeal: heal || undefined
             };
         }
         // -c：只报每个文件的命中处数（不看行内容）—— 评估改动面时最省眼睛
@@ -6484,7 +6558,7 @@
                 ok: true, op: 'grep', path: r.path,
                 summary: 'grep “' + pattern + '”' + opts + ' → ' + r.files.length + ' 个文件 ' + r.totalHits + ' 处命中（仅计数）',
                 body: r.files.map(function (f, i) { return (toks[i] ? toks[i] + '  ' : '') + f.count + '  ' + f.path; }),
-                selfHeal: ctxIgnored || undefined
+                selfHeal: heal || undefined
             };
         }
         // 命中行按文件发路径令牌：**每个文件只在其第一处命中行首带一次 @pN**（行首仍是锚点 #xxx，
@@ -6524,7 +6598,7 @@
                 }
             }
             if (r.truncated) rows.push('(命中 ' + r.totalHits + ' 处，只回前 ' + r.hits.length + ' 处；可加 limit=500 提高上限，或缩小路径/加 ext 过滤)');
-            return { ok: true, op: 'grep', path: r.path, summary: 'grep “' + pattern + '”' + opts + ' → 查了 ' + r.scanned + ' 个文件，其中 ' + r.files.length + ' 个有命中（' + r.totalHits + ' 处，带 ctx=' + flags.ctx + '）', body: rows };
+            return { ok: true, op: 'grep', path: r.path, summary: 'grep “' + pattern + '”' + opts + ' → 查了 ' + r.scanned + ' 个文件，其中 ' + r.files.length + ' 个有命中（' + r.totalHits + ' 处，带 ctx=' + flags.ctx + '）', body: rows, selfHeal: heal || undefined };
         }
         const rows = [];
         const seenFile2 = {};
@@ -6540,7 +6614,7 @@
         }
         if (r.truncated) rows.push('(命中 ' + r.totalHits + ' 处，只回前 ' + r.hits.length + ' 处；可加 limit=500 提高上限，或缩小路径/加 ext 过滤)');
         // 17：命中数按「文件」和「处」分开说 —— 只写「N 命中」会让人以为是文件数
-        return { ok: true, op: 'grep', path: r.path, summary: 'grep “' + pattern + '”' + opts + ' → 查了 ' + r.scanned + ' 个文件，其中 ' + r.files.length + ' 个有命中（' + r.totalHits + ' 处）', body: rows };
+        return { ok: true, op: 'grep', path: r.path, summary: 'grep “' + pattern + '”' + opts + ' → 查了 ' + r.scanned + ' 个文件，其中 ' + r.files.length + ' 个有命中（' + r.totalHits + ' 处）', body: rows, selfHeal: heal || undefined };
     }
 
     /* help：从命令注册表现查用法（不靠 AI 背命令表 —— 用到哪个查哪个）。
@@ -6599,6 +6673,15 @@
     function doFind(cmd, path) {
         const flags = cmd.flags || {};
         const pattern = (cmd.args && cmd.args.length) ? cmd.args[0] : '*';
+        // 2.13.0：路径写在了后面（`find "*.js" /src`）→ 报错，不静默当成从 / 搜
+        if (cmd.misplacedPath) {
+            return fail(cmd, cmd.misplacedPath, '参数顺序不对：' + cmd.misplacedPath + ' 被当成了多余的匹配式，本次没有查找',
+                {
+                    kind: 'syntax',
+                    syntax: 'find /路径 "文件名模式" [ext=js,md] [depth=1] [dirs] [since=10m]',
+                    fix: '路径写在前面：find ' + cmd.misplacedPath + ' "' + pattern + '"'
+                });
+        }
         // since= 写错必须报错，不能静默当「没给」——否则「最近改过的文件」会回一份全量列表
         if (flags.since != null && parseDurationMs(flags.since) == null) {
             return fail(cmd, path, 'since/recent 的时长写法不对：' + flags.since, {
@@ -6714,7 +6797,9 @@
                     const after = stripped[j + mk.length] || '';
                     if (before === '' || /[^\w]/.test(before) || after === '' || /[^\w]/.test(after)) n++;
                 }
-                if (n % 2 === 1) notes.push('L' + (i + 1) + '：孤立的 ' + mk + ' 出现 ' + n + ' 次（奇数）');
+                if (n % 2 === 1 && n <= SUSPICIOUS_EMPHASIS_MAX) {
+                    notes.push('L' + (i + 1) + '：孤立的 ' + mk + ' 出现 ' + n + ' 次（奇数）');
+                }
             }
         }
         return notes.join('；');
@@ -6779,7 +6864,7 @@
     function doWrite(cmd, path, ctx) {
         const rawBody = cmd.body == null ? '' : cmd.body.join('\n');
         const fenced = !!(cmd && cmd.domain && cmd.domain.fence);   // 整段执行域是否被代码围栏包住
-        const b64Note = suggestBase64(rawBody, cmd);
+        const b64Note = (cmd.flags && cmd.flags.noWarn) ? '' : suggestBase64(rawBody, cmd);
         const bt = bodyTextOf(cmd, 'write', path);
         if (bt.error) return bt.error;
         const body = bt.body;
@@ -6802,7 +6887,8 @@
         // 但整段执行域已被围栏包住时，围栏内是**字面量**、平台不改写 ——
         // 此时 `__`/`**`/行首缩进的告警只会是误报，跳过；base64 建议仍保留
         //（它针对的是「正文里一整行 <<< 提前闭合 heredoc」这个协议层冲突，与外围栏无关）。
-        const sus = fenced ? '' : suspiciousBody(body);
+        const quiet = !!(cmd.flags && cmd.flags.noWarn);
+        const sus = (fenced || quiet) ? '' : suspiciousBody(body);
         if (sus) {
             ctx.heals++;
             out.selfHeal = out.selfHeal ? (out.selfHeal + '；⚠' + sus) : ('⚠' + sus);
@@ -6814,8 +6900,7 @@
 
     function doAppend(cmd, path, ctx) {
         const rawBody = cmd.body == null ? '' : cmd.body.join('\n');
-        const b64Note = suggestBase64(rawBody, cmd);
-        const bt = bodyTextOf(cmd, 'append', path);
+        const b64Note = (cmd.flags && cmd.flags.noWarn) ? '' : suggestBase64(rawBody, cmd);
         if (bt.error) return bt.error;
         const body = bt.body;
         const r = VirtualFS.append(path, body, cmd.flags);
@@ -7481,6 +7566,17 @@
      * core 沙箱里是空实现。这样 src/core/ 目录完全不碰 document —— 分层边界由测试（#40）钉住。
      */
     function doUpload(cmd, path) {
+        // 2.13.0 批量附件：`upload /目录` 或 `upload /a /b /c` → 打成一个 zip 附件。
+        // 「先打包整个项目发出去」比 AI 一轮轮 read 分段读快得多，也不容易把上下文耗干。
+        const targets = [path].concat((cmd.args || []).filter(Boolean));
+        const nodes = [];
+        const dirs = [];
+        for (const t of targets) {
+            const n = VirtualFS.resolve(t);
+            if (!n) return fail(cmd, t, t + ' 不存在', { kind: 'path', candidates: VirtualFS.similarPaths(t) });
+            if (n.type === 'dir') dirs.push(t); else nodes.push(t);
+        }
+        if (dirs.length || targets.length > 1) return uploadZip(cmd, targets, dirs, nodes);
         const node = VirtualFS.resolveFile(path);
         if (!node) return fail(cmd, path, path + ' 不存在', { kind: 'path', candidates: VirtualFS.similarPaths(path) });
         const content = String(node.content == null ? '' : node.content);
@@ -7495,6 +7591,76 @@
         return {
             ok: true, op: 'upload', path: path, attach: !!deliv.attach,
             summary: deliv.summary || ('⇩ ' + name + ' ' + sizeText + '（' + (deliv.why || '未交付') + '）'),
+            changes: [], warn: deliv.warn || []
+        };
+    }
+
+    // 批量附件：收集目标下的文件 → zip → 走与单文件一样的交付通道
+    const UPLOAD_ZIP_MAX_FILES = 200;
+    function uploadZip(cmd, targets, dirs, files) {
+        const list = [];
+        const seen = Object.create(null);
+        const add = function (p, content) {
+            if (seen[p]) return;
+            seen[p] = 1;
+            list.push({ path: p, content: content });
+        };
+        for (const f of files) {
+            const n = VirtualFS.resolveFile(f);
+            if (n) add(f, String(n.content == null ? '' : n.content));
+        }
+        for (const d of dirs) {
+            const node = VirtualFS.resolve(d);
+            if (!node) continue;
+            const prefix = d === '/' ? '/' : d + '/';
+            const walk = function (nd, pfx) {
+                for (const name of Object.keys(nd.children || {}).sort()) {
+                    if (list.length >= UPLOAD_ZIP_MAX_FILES) return;
+                    const c = nd.children[name];
+                    const p = pfx + name;
+                    if (c.type === 'dir') { walk(c, p + '/'); continue; }
+                    if (VirtualFS.isInternal(p)) continue;         // 系统区 / 回收站不进附件
+                    add(p, String(c.content == null ? '' : c.content));
+                }
+            };
+            walk(node, prefix);
+        }
+        if (!list.length) {
+            return fail(cmd, targets[0], '这些路径下没有可打包的文件', { kind: 'path', fix: 'upload /src（目录会打成 zip）或 upload /a.js' });
+        }
+        let bytes = null;
+        try { bytes = typeof buildZip === 'function' ? buildZip(list) : null; } catch (e) { bytes = null; }
+        if (!bytes || !bytes.length) {
+            return fail(cmd, targets[0], '打包失败', { kind: 'generic', fix: '一次给少一点：upload /子目录' });
+        }
+        const zipName = (dirs.length === 1 ? (dirs[0].split('/').pop() || 'container') : 'container') + '.zip';
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        const sizeText = fmtSize(bytes.length);
+        let deliv = { ok: false, attach: false, why: '本环境没有交付通道' };
+        try {
+            if (typeof attachToComposer === 'function') {
+                const att = attachToComposer(zipName, blob, 'application/zip');
+                if (att && att.ok) deliv = { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + zipName + ' ' + sizeText + '，含 ' + list.length + ' 个文件 —— 点发送即可' };
+                else {
+                    const made = downloadBlob(blob, zipName);
+                    deliv = {
+                        ok: false, attach: false,
+                        summary: '⇩ 已下载 ' + zipName + ' ' + sizeText + '，含 ' + list.length + ' 个文件'
+                            + (att && att.why ? '（本平台没有附件入口：' + att.why + '）' : '')
+                    };
+                    if (!made) deliv.warn = ['当前环境不支持自动下载'];
+                }
+            } else {
+                const made = downloadBlob(blob, zipName);
+                deliv = { ok: false, attach: false, summary: '⇩ 已下载 ' + zipName + ' ' + sizeText + '（含 ' + list.length + ' 个文件）' };
+                if (!made) deliv.warn = ['当前环境不支持自动下载'];
+            }
+        } catch (e) {
+            deliv = { ok: false, attach: false, why: (e && e.message) || '打包失败' };
+        }
+        return {
+            ok: true, op: 'upload', path: targets[0], attach: !!deliv.attach,
+            summary: deliv.summary || ('⇩ ' + zipName + ' ' + sizeText + '（' + (deliv.why || '未交付') + '）'),
             changes: [], warn: deliv.warn || []
         };
     }
@@ -7568,7 +7734,69 @@
         gateSave(g);
     }
 
-    /* ---------------------------- 批次 ---------------------------- */
+    /* ---------------------------- AUTO 自带 diff（2.13.0） ----------------------------
+ * 自动修正（锚点重定位 / edit 模糊匹配 / 命令名纠错 / 行号平移 …）都改了文件，
+ * 但旧回执只给一句 ⚠ —— 用户得为一个**看不见的改动**负责。现在：批前给被改路径抓一份快照，
+ * 批后对「有自愈且内容真的变了」的路径算一份短 diff，随回执一起发（最多 8 行，超出落盘）。
+ */
+    const AUTO_DIFF_MAX_FILES = 6;
+    const AUTO_DIFF_MAX_ROWS = 8;
+    const AUTO_DIFF_MAX_BYTES = 200000;
+
+    function capturePreImages(cmds) {
+        const map = Object.create(null);
+        let n = 0;
+        for (const c of (cmds || [])) {
+            if (!c || !c.ok || c.anchor) continue;
+            if (!MUTATING_OPS[c.op] || c.op === 'undo' || c.op === 'redo') continue;
+            if (!c.path) continue;
+            let p = null;
+            try { p = resolvePathArg(c.path, cwd); } catch (e) { continue; }
+            if (!p || map[p]) continue;
+            const node = VirtualFS.resolveFile(p);
+            if (!node) continue;
+            const content = String(node.content == null ? '' : node.content);
+            if (content.length > AUTO_DIFF_MAX_BYTES) continue;
+            if (n >= AUTO_DIFF_MAX_FILES) break;
+            map[p] = content;
+            n++;
+        }
+        return map;
+    }
+
+    function compactAutoDiff(oldText, newText) {
+        const A = String(oldText == null ? '' : oldText).split('\n');
+        const B = String(newText == null ? '' : newText).split('\n');
+        if (A.length > 1 && A[A.length - 1] === '') A.pop();
+        if (B.length > 1 && B[B.length - 1] === '') B.pop();
+        const clip = function (x) { return x == null ? '(无此行)' : String(x).slice(0, 60); };
+        const rows = [];
+        const max = Math.max(A.length, B.length);
+        for (let i = 0; i < max && rows.length < AUTO_DIFF_MAX_ROWS; i++) {
+            const a = i < A.length ? A[i] : null;
+            const b = i < B.length ? B[i] : null;
+            if (a != null && b != null && a === b) continue;
+            rows.push('L' + (i + 1) + '  - ' + clip(a) + '   →   + ' + clip(b));
+        }
+        return rows;
+    }
+
+    function attachAutoDiff(results, preImages) {
+        if (!preImages || !Object.keys(preImages).length) return;
+        for (const r of (results || [])) {
+            if (!r || !r.ok || !r.selfHeal || r.dry || !MUTATING_OPS[r.op]) continue;
+            const before = preImages[r.path];
+            if (before == null) continue;
+            const node = VirtualFS.resolveFile(r.path);
+            if (!node) continue;
+            const after = String(node.content == null ? '' : node.content);
+            if (after === before) continue;
+            const rows = compactAutoDiff(before, after);
+            if (rows.length) r.autoDiff = rows;
+        }
+    }
+
+/* ---------------------------- 批次 ---------------------------- */
 
     /* ---------------------------- 同错升级（§5 R9） ---------------------------- */
 
@@ -7632,6 +7860,12 @@
         // atomic 首错后剩余的命令：不再「消失」，统一补成 skipped 结果逐条列出
         // （容器实测：发 3 条只回 2 条，与「逐条事实」的承诺不符）
         let stopAt = -1;
+        // 2.13.0 expect 联动回滚：`expect` 是**批内后置断言**（“写完应该出现某段文本”）。
+        // 断言失败时前面那些写入已经进了本批快照 —— 以前只告知不对账，文件里就留着失败状态。
+        // 现在断言失败 = 整批回滚（同 atomic 语义），并在回执里写明回滚了哪些路径。
+        let expectFail = null;
+        let rollbackPaths = [];
+        const preImages = capturePreImages(cmds);   // 2.13.0：AUTO 自带 diff 的批前快照
 
         VirtualFS.beginBatch();
         try {
@@ -7673,7 +7907,7 @@
                     results.push({
                         ok: false, op: cmd.op, path: cmd.path, line: cmd.line, kind: 'denied',
                         error: '危险命令 ' + cmd.op + ' 不在执行域内，已拒绝（危险命令永不放宽）',
-                        fix: '把该命令放进 [[dsw]] … [[/dsw]] 执行域',
+                        fix: '把该命令放进 ```dsw 代码围栏（或 <dsw> … </dsw>）执行域',
                         dry: isDry || undefined
                     });
                     if (ctx.atomic && !firstError) { firstError = results[results.length - 1]; stopAt = ci; break; }
@@ -7727,6 +7961,16 @@
                 if (isDry) r.dry = true;
                 noteAttempt(r);
                 results.push(r);
+                // expect 失败 → 停批并回滚（本批前面那些写入一起撤回）
+                if (!r.ok && r.kind === 'expect' && !ctx.atomic) {
+                    if (VirtualFS.batchMutated()) {
+                        r.batchRolledBack = true;
+                        expectFail = r;
+                        firstError = r;
+                        stopAt = ci;
+                        break;
+                    }
+                }
                 if (!r.ok && ctx.atomic && !firstError) { firstError = r; stopAt = ci; break; }
             }
             if (stopAt >= 0) {
@@ -7734,7 +7978,7 @@
                     const c = cmds[ci] || {};
                     const sk = {
                         ok: false, op: c.op || '?', path: c.path || '', line: c.line,
-                        kind: 'skipped', error: '未执行（atomic 首错已整批回滚）'
+                        kind: 'skipped', error: expectFail ? '未执行（前面的 expect 断言失败，本批已回滚）' : '未执行（atomic 首错已整批回滚）'
                     };
                     if (c.domain && c.domain.dry) sk.dry = true;
                     results.push(sk);
@@ -7742,9 +7986,17 @@
             }
             closeDry();
 
-            if (ctx.atomic && firstError) {
+            if ((ctx.atomic && firstError) || expectFail) {
                 rolledBack = VirtualFS.rollbackBatch();
-                if (rolledBack) for (const r of results) if (r.ok) r.rolledBack = true;
+                if (rolledBack) {
+                    for (const r of results) if (r.ok) r.rolledBack = true;
+                    // 2.13.0：告诉 AI 到底哪些路径被撤了（atomic 回滚难定位的根因就是“不知道动了什么”）
+                    const undone = [];
+                    for (const r of results) {
+                        if (r.ok && r.changes) for (const c of r.changes) if (undone.indexOf(c) === -1) undone.push(c);
+                    }
+                    rollbackPaths = undone.slice(0, 8);
+                }
             } else {
                 // dry 段已经在上面各自回滚过了；这里提交的是外层（真实写入的那部分）
                 VirtualFS.commitBatch();
@@ -7757,6 +8009,7 @@
             results.push({ ok: false, op: '?', path: '', error: '内部错误：' + (e && e.message ? e.message : String(e)), kind: 'internal' });
         }
 
+        attachAutoDiff(results, preImages);
         const allDry = cmds.length > 0 && dryCount === cmds.length;
         if (allDry) rolledBack = true;      // 纯 dry 批次：一条都没落盘（内层已逐段回滚）
         return {
@@ -7764,6 +8017,8 @@
             heals: ctx.heals,
             results: results,
             rolledBack: rolledBack,
+            rollbackByExpect: !!expectFail,
+            rollbackPaths: rollbackPaths,
             dry: allDry,
             dryCount: dryCount,
             firstError: firstError
@@ -7794,7 +8049,13 @@
         if (denied.length === results.length) return STATUS.DENY;
         const okCount = results.filter(function (r) { return r.ok; }).length;
         const healed = results.some(function (r) { return r.selfHeal; }) || (opts.heals || 0) > 0;
-        if (okCount === results.length) return healed ? STATUS.AUTO : STATUS.OK;
+        // 2.13.0：有命令把「不认识的参数 / 路径」当没看见地执行了（partial）→ 明确给 PARTIAL，
+        // 绝不报成 AUTO/OK 让人以为参数生效了。
+        const partial = results.some(function (r) { return r.ok && r.partial; });
+        if (okCount === results.length) {
+            if (partial) return STATUS.PARTIAL;
+            return healed ? STATUS.AUTO : STATUS.OK;
+        }
         return STATUS.PARTIAL;
     }
 
@@ -8012,6 +8273,8 @@
             detail.push(head2.trim());
             // 单命令存点回滚：这条命令写到一半的改动已被撤掉（同批其它命令不受影响），不能不说
             if (r.sideEffectsRolledBack) detail.push('  ⤺ 这条命令写到一半的改动已回滚（同批其它命令不受影响）');
+            // 2.13.0 expect 联动回滚：断言不过 → 整批写入已撤
+            if (r.batchRolledBack) detail.push('  ⤺ 断言失败：本批已写入的内容已全部回滚（改对后重发，文件不会停在失败状态）');
             if (r.detail && r.detail.length) for (const d of r.detail) detail.push('  ' + d);
             if (r.candidates && r.candidates.length) {
                 for (const c of r.candidates.slice(0, 2)) {
@@ -8080,6 +8343,25 @@
             }
         }
         out.push.apply(out, envTail);
+        // 2.13.0：AUTO 必须附 diff —— 自动修正改了文件却只给一句 ⚠，等于要用户为看不见的改动负责。
+        if (status === STATUS.AUTO) {
+            const diffs = [];
+            for (const r of results) if (r && r.autoDiff && r.autoDiff.length) diffs.push({ r: r, rows: r.autoDiff });
+            if (diffs.length) {
+                out.push('⚙ AUTO：脚本自动改了这些（diff 在这，核对后再往下走）');
+                let shown = 0;
+                for (const d of diffs) {
+                    for (const row of d.rows) {
+                        if (shown >= AUTO_DIFF_MAX_ROWS) break;
+                        out.push('  ' + (d.r.path || d.r.op || '') + ' ' + row);
+                        shown++;
+                    }
+                }
+                if (shown < diffs.reduce(function (n, d) { return n + d.rows.length; }, 0)) {
+                    out.push('  …（其余自动改动可用 diff ' + (diffs[0].r.path || '路径') + ' <另一个文件> 自己看）');
+                }
+            }
+        }
         if (dropped) {
             const sp = spillText('receipt', factsAll.join('\n'));      // 14：完整回执落盘，给 read 路径
             out.push('… 另有 ' + dropped + ' 行已省略' + (sp ? '（完整内容：read ' + sp + '）' : '（完整内容见面板「回执」页）'));
@@ -8104,7 +8386,7 @@
             RECEIPT_OPEN + ' SKIP 0/0 · 0ms',
             '相同批次已于 ' + sec + 's 前执行，未重复执行'
                 + '（幂等窗口 ' + win + 's，还剩 ' + left + 's；到点后重发会正常执行）' + (note ? '（' + note + '）' : ''),
-            '◀ 确需强制重跑请在开标记加 force：[[dsw force]]'
+            '◀ 确需强制重跑请在开标记加 force：```dsw force（或 <dsw force>）'
         ];
         lines.push(RECEIPT_CLOSE);
         return fenceOutbound(lines.join('\n'));
@@ -8115,7 +8397,7 @@
      * 11 契约三层（§2 P4）：L0 触发句 · L1 手册文件 /__sys/手册.md · L2 回执纠错
      * ====================================================================== */
 
-    const MANUAL_MARK = 'proto=' + PROTO_VERSION + ' | dsl=[[dsw]]';
+    const MANUAL_MARK = 'proto=' + PROTO_VERSION + ' | dsl=dsw-fence';
 
     // 命令表由注册表 COMMANDS 生成（单一事实来源）：加了命令就自动出现在手册与 help 里，不会漂。
     function manualCommandTable() {
@@ -8142,36 +8424,46 @@
             '',
             '## 1. 执行域',
             '',
-            '命令必须写在执行域里，**并用代码围栏把整段执行域包住** —— 围栏内是字面量，平台不会渲染（否则行首 `#` `-` `>`、「数字.」、成对 `__` `**`、缩进都可能被吞掉）。域外的讲解、示例、历史消息永不执行；**写命令在域外一律不执行**。',
+            '命令必须写在执行域里。**执行域就用一个带 `dsw` 语言标签的代码围栏** —— 这正是各家 Agent 工具的命令块形状，平台也会原样保留围栏内字符（不渲染），所以行首 `#` `-` `>`、「数字.」、成对 `__` `**`、缩进都不会被吞。域外的讲解、示例、历史消息永不执行；**写命令在域外一律不执行**。',
             '',
             '```dsw',
-            '[[dsw]]',
             'read /',
-            '[[/dsw]]',
+            '```',
+            '',
+            '等价的第二种写法是 XML 标签（与 `<tool>` 同形状）：',
+            '',
+            '```',
+            '<dsw>',
+            'read /',
+            '</dsw>',
             '```',
             '',
             '| 开标记 | 作用 |',
             '| --- | --- |',
-            '| `[[dsw]]` | 普通域 |',
-            '| `[[dsw atomic]]` | 整条消息任一失败 → 全部回滚（**消息级**） |',
-            '| `[[dsw force]]` | 绕过幂等，强制重跑 |',
-            '| `[[dsw dry]]` | 只校验不写盘（**域级**） |',
+            '| dsw 围栏（开头三个反引号 + dsw），或 `<dsw>` | 普通域 |',
+            '| dsw 围栏 + atomic，或 `<dsw atomic>` | 整条消息任一失败 → 全部回滚（**消息级**，但不推荐，见下） |',
+            '| dsw 围栏 + force，或 `<dsw force>` | 绕过幂等，强制重跑 |',
+            '| dsw 围栏 + dry，或 `<dsw dry>` | 只校验不写盘（**域级**） |',
             '',
-            '开标记的大小写 / 空格 / 全半角都无所谓；闭标记 `[[/dsw]]`（`[[//dsw]]`、`[[ / dsw ]]` 也认）。',
+            '开标记的大小写 / 空格 / 全半角都无所谓；闭标记就是结尾那行三个反引号（或 `</dsw>`）。',
+            '',
+            '**旧标记（`[[dsw]]` / `⟦dsw⟧` / `===dsw===`）已彻底移除**：不再识别、不再兼容；写到它们时容器会明确报错并给新写法（不会静默执行、也不会静默忽略）。',
+            '',
             '',
             '**两个修饰符的作用范围不对称，这是最容易踩的坑：**',
             '',
             '- `dry` 是**域级** —— 只作用于写了它的那个域，同一条消息里别的域照常写入。',
             '- `atomic` 是**消息级** —— 一条消息里所有执行域合并成**一个批次**，任一域任一条失败，整条消息的全部写入一起回滚（没写 `atomic` 的普通域也一起回滚）。',
+            '- **默认不要用 `atomic`**：回执要等下一轮才到，`atomic` 把「一条可见的失败」变成「整批凭空消失」，很难定位。默认行为（**只回滚失败的那一条 + 状态给 `PARTIAL`**）才好定位；要「整批保真」用 `expect` 做后置断言即可（断言失败 → 本批已写入内容自动回滚）。真要用 `atomic`，回执会列出被回滚的路径。',
             '- 没有「域级 atomic」。要「只回滚某一段」，把那一段拆到另一条消息单独发送。',
             '',
             '其余规则：',
             '',
-            '- ✅ 围栏写法：开头三个反引号 + `dsw`（即带 dsw 语言标签的代码围栏），结尾三个反引号（标签写 `dsw` / `dsl` 都认；也可以外面套围栏、里面照写 `[[dsw]] … [[/dsw]]`）。围栏闭合要求**同字符且长度 ≥ 开始符** —— 若正文里出现一整行三个反引号，把外层围栏加长为四个反引号，正文里的反引号串就不会提前闭合。',
+            '- ✅ 围栏闭合要求**同字符且长度 ≥ 开始符** —— 若正文里出现一整行三个反引号，把外层围栏加长为四个反引号，正文里的反引号串就不会提前闭合。',
             '- 一条消息可以有多个执行域，按文档顺序合并成一个批次，只回一条回执。',
-            '- ❌ 开标记没有对应的 `[[/dsw]]` → 整个域不执行，回执 `NOOP 未闭合`。',
+            '- ❌ 域没有闭合 → 整个域不执行，回执 `NOOP 未闭合`。',
             '- ❌ 命令写在执行域外 → 不执行（回执会提示）。唯一例外是 §7 的「域外兜底」：整段像命令**且全是只读命令**时才可能被执行 —— 不要依赖它，写命令在域外永远不执行。',
-            '- ✅ 越权（系统区 / 计划模式）或语法错的那一条**只拒它自己**，同批其它命令照常执行；要「一条错就整批不算」用 `[[dsw atomic]]`。',
+            '- ✅ 越权（系统区 / 计划模式）或语法错的那一条**只拒它自己**，同批其它命令照常执行（状态 `PARTIAL`）；要「一条错就整批不算」用 dsw 围栏 + atomic（但先看上一条的提醒）。',
             '- ❌ 旧机制写法已全部移除、不再归一化：`[read: /a]`、`[write: /a] … [/write]`、`§` 闭合、`fs` 围栏里的裸命令行一律不执行，回执里给正确写法。',
             '',
             '## 2. 命令与正文',
@@ -8181,6 +8473,10 @@
             '**路径**：可省略前导 `/`（相对 cwd）。`#锚点` 与 `@路径令牌` 可以直接当路径用（见 §4）。',
             '',
             '**参数**四种写法等价：`all=1`、`all:1`、`--all`、`all`。单字母开关必须带横杠（`-a`、`-r`、`-n`），否则会和替换文本里的单字符混淆。',
+            '',
+            '**不认识的参数不会被静默忽略**：命令照执行，但该条回执标 `⚠参数 X 本命令不认识，已忽略`，整条回执的状态给 **`PARTIAL`**（不是 OK / AUTO）—— 别把 PARTIAL 当成成功，它的意思是「你要的效果没生效」。',
+            '',
+            '**`grep` / `find` 的参数顺序是硬性的**：`grep /路径 "关键词"`、`find /路径 "*.js"`。写成 `grep -n "x" /a.html` 会报错并给正确写法（不按“全容器搜索”降级执行）。`grep` 恒带行号，`-n` 不用写（写了只提示一句）。',
             '',
             '**引号内的片段一律按字面量**：`edit /f "L2" "L3"` 里的 `L2` 是文本、不是行区间；`"all"`、`"42"` 同理。要行区间 / 开关就写**不带引号**的 `L2`、`10-20`、`all`、`-i`。`""` 是合法的空替换（用来删掉一段文本）。',
             '',
@@ -8193,12 +8489,10 @@
             '| 内联 | `edit /f "旧" "新"` | 短替换，最省事；**不能跨行** —— 必须写在同一物理行，换行会让后半行变成「未知命令」 |',
             '',
             '```dsw',
-            '[[dsw]]',
             'write /src/util.js',
             '<<<',
             'export const add = (a, b) => a + b;',
             '<<<',
-            '[[/dsw]]',
             '```',
             '',
             '正文原样保留（空行、代码块都安全），但有三个坑：',
@@ -8210,6 +8504,7 @@
             '3. **行首空白与转义改写（硬规则）**：脚本取的是 DOM 文本（不是渲染文本），能挡住浏览器折行，**挡不住平台在渲染阶段就吞掉行首空白、改写 `__` `**` `*` `_` `[x](y)` 这类标记**。既然**整段执行域已经用外层代码围栏包住**（§1），围栏内就是字面量：行首缩进 / 代码 / 行首 `#` `-` `>` / 行首「数字.」/ `<` `>` / `[链接](…)` / 成对 `__` `**` / 反斜杠 / 竖线表格**都不需要额外处理**，正文直接写。',
             '   唯一例外：正文里出现**一整行三个反引号**会提前闭合外层围栏 —— 把外层围栏加长到四个反引号即可，程序按「同字符且长度 ≥ 开始符」判闭合。',
             '   不套外层围栏（旧写法）时：`__init__` 会变成 `init`（成对下划线被当强调吞掉）、`[i]` 会变成 `iii`（当斜体吞掉方括号）、行首缩进丢失、行首 `#` `-` `>` 「数字.」被当 Markdown 吃掉。**含 JS/CSS/正则等大量特殊字符的正文，首选 `write /路径 base64`** —— 它不经过聊天渲染层，缩进、`__`、反引号、`<<<` 全部免疫。',
+            '4. **正文体检告警可以关**：写入时容器会扫一遍可疑写法（落单在行首/行尾的 `**` `__`、被吞掉的 Python 缩进、正文含整行 `<<<`）并在回执标 `⚠`。确认无误时给该命令加 `--no-warn`（或 `nowarn`）即可关掉本条的告警 —— 告警只是提醒，从不阻止写入。',
             '',
             '**正文相关的其它事实**：',
             '',
@@ -8248,6 +8543,8 @@
             '- `copy /src /dst 10-20` → 只把那一段裁出来存成 `/dst`（目标存在要 `force`）；`rmline /src 10-20` → 裁掉那一段。',
             '- `sort /list.txt uniq` → 就地排序 + 去重（`numeric` 按数值、`reverse` 反向；已经有序会明说未改动）。',
             '- **glob 批量**：`delete /tmp/*.txt force`、`copy /src/*.md /out`、`move /src/*.txt /out` —— 整批原子，写内部区一律拒绝；**glob 删除必须加 `force`**，命中目录还要 `recursive`。',
+            '- **批量交付（附件）**：`upload /src`（目录，含子目录）或 `upload /a.js /b.js`（多个路径）→ 打成 **zip 附件**发到聊天里（平台没附件入口时回退为下载）。想快速了解整个项目，**先 `upload /项目目录` 一次拿全**，比一轮轮 `read` 分段读省得多。',
+            '- **优先批量**：`apply`（一次写多个文件）、`edit /目录 "旧" "新"`（全目录替换）、`grep -l` + 令牌、glob 一条命令、一轮里多条命令并排写 —— 一条命令一个来回是最贵的写法，能并就并。',
             '',
             '## 4. 两个令牌',
             '',
@@ -8258,12 +8555,10 @@
             '回执里出现 `#a3f /src/util.js:12  export function add(…)`，下一轮直接：',
             '',
             '```dsw',
-            '[[dsw]]',
             'edit #a3f',
             '<<<',
             'export const add = (a, b) => a + b;',
             '<<<',
-            '[[/dsw]]',
             '```',
             '',
             '- `read #a3f` 读**锚点所在行 ±3 行**（带行号）。要更大范围有两种写法：',
@@ -8293,9 +8588,11 @@
             '⟦/fs⟧',
             '```',
             '',
-            '**状态码只有 6 个**：`OK` 全成功 · `AUTO` 全成功且有自动修正 · `PARTIAL` 有失败 · `NOOP` 没有有效命令 · `SKIP` 相同批次刚执行过（**必回执**）· `DENY` 整批被安全策略拒。',
+            '**状态码只有 6 个**：`OK` 全成功 · `AUTO` 全成功且有自动修正 · `PARTIAL` 有失败**或不认识的参数被忽略** · `NOOP` 没有有效命令 · `SKIP` 相同批次刚执行过（**必回执**）· `DENY` 整批被安全策略拒。',
             '',
-            '优先级 **`PARTIAL` 压 `AUTO`、`AUTO` 压 `OK`**：同批只要有一条失败就是 `PARTIAL`，即便别的命令自愈成功也仍然是 `PARTIAL`（自愈的 `⚠` 照旧逐条标出，不会因为升级成 `PARTIAL` 就消失）；全部成功且有自愈才是 `AUTO`。',
+            '优先级 **`PARTIAL` 压 `AUTO`、`AUTO` 压 `OK`**：同批只要有一条失败、或有一条把不认识的参数当没看见地执行了，就是 `PARTIAL`，即便别的命令自愈成功也仍然是 `PARTIAL`（自愈的 `⚠` 照旧逐条标出，不会因为升级成 `PARTIAL` 就消失）；全部成功且有自愈才是 `AUTO`。',
+            '',
+            '**`AUTO` 必带 diff**：自动修正改了文件时，回执末尾会多一段 `⚙ AUTO：脚本自动改了这些` + 逐行 `- 旧 → + 新`。改了什么一目了然，不必再 `read` 一遍核对。',
             '',
             '**行首记号**：',
             '',
@@ -8393,12 +8690,12 @@
             '| `plan on` | 开启计划模式：写操作被拦截，只有计划文件本身能写（同批后面的写命令当场就被拦） |',
             '| `plan list` | 列出条目与状态（等价 `read /__sys/plan.md`） |',
             '| `plan add <条目>` | 追加一条「待完成」 |',
-            '| `plan done <序号或文字>` | 标记完成（`plan doing …` 进行中、`plan todo …` 待完成同理） |',
+            '| `plan done <序号 / last / 文字>` | 标记完成（`plan doing …` 进行中、`plan todo …` 待完成同理）；**`last` = 最后一条** |',
             '| `plan del <序号或文字>` / `plan clear` | 删除一条 / 清空 |',
             '| `plan off` | ❌ **只有用户能退**（面板「计划」→ 退出计划），AI 写会被回绝 |',
             '',
-            '- ✅ `plan done 2`（按序号）或 `plan done 改造出站`（按文字片段，唯一命中才认）。',
-            '- ⚠ 计划**只用 `plan` 命令维护，不要裸写 `/__sys/plan.md`**：平台会把行首的 `- [ ]` 当 Markdown 吃掉，条目会解析成 0 条。',
+            '- ✅ `plan done 2`（按序号）、`plan done last`（最后一条，同批里 `plan add` 之后直接用它标完成）、`plan done 改造出站`（按文字片段，唯一命中才认）。',
+            '- ⚠ 计划**只用 `plan` 命令维护，不要裸写 `/__sys/plan.md`**：对计划文件用 `write` / `edit` / `patch` 会被 `DENY`（回执直接告诉你改用 `plan`）；就算绕过去了，平台也会把行首的 `- [ ]` 当 Markdown 吃掉，条目会解析成 0 条。',
             '- ✅ 计划模式开启后，容器**每一轮都附带当前计划与每条状态**，不必再 `read`。它是**独立的一块**、附在同一条消息末尾（不是回执内部）；计划为空、面板关掉「每轮附带计划进度」、或正处在终止符暂停时都不附。',
             '- ❌ 计划模式下写其它文件 → 回执 `DENY`。先把计划改好，等用户退出计划模式再动文件。',
             '',
@@ -8417,7 +8714,7 @@
             '- ❌ 一轮对话结束就写 `■` —— 那是「请用户停下看这里」的信号，每写一次容器就暂停一次，滥用会变成噪声。',
             '- ❌ 把 `■` 写在正文或文件内容的中间 —— 容器只认回复尾部（最后 400 字符）。',
             '- ❌ 不要两个都写：最后一行是 `■` 时就不用再写 `◆`（容器两个都认，同时写只是啰嗦）。',
-            '- ❌ 尾部还挂着未闭合的 `[[dsw]]` 时写 `■` 无效：容器不信任这个符号（不提醒、不暂停），先把执行域闭合。',
+            '- ❌ 尾部还挂着未闭合的执行域（没写结尾的 ``` 或 `</dsw>`）时写 `■` 无效：容器不信任这个符号（不提醒、不暂停），先把执行域闭合。',
             '- 忘了写 `◆` 不会出错：容器会退回「平台流式标记 + 正文静止 1.2s」的判定，只是慢一点。',
             '',
             '### 写了 `■` 之后会发生什么（你不需要做任何事）',
@@ -8431,7 +8728,7 @@
             '',
             '## 10. 断言与撤销',
             '',
-            '- `expect /src/a.js "export const add"`：断言失败 → 该批 `PARTIAL` 并给出实际片段。',
+            '- `expect /src/a.js "export const add"`：**后置断言** —— 断言失败 → 该批 `PARTIAL`、给出实际片段，**并且本批已写入的内容全部回滚**（文件不会停在失败状态；回执列出被回滚的路径）。所以「写完验一下」比「写完再看」安全，也比 `atomic` 好定位。',
             '- `undo` / `redo`：**一个批次 = 一步**（`undo 1` 回退上一批的全部写入，不是单条命令）；读批（`read` / `list` / `grep`…）不进撤销栈，所以「步数」与写入次数一一对应。',
             '- `undo` **不是删除**：它把容器整体拨回那一档，被移出的文件不进回收站，`restore` 找不回来 —— 但 `redo` 可以拨回去。',
             '- 撤销之后又发生新写入，重做分支作废（经典撤销栈语义），回执会说明回到第几档、动了哪些路径。',
@@ -8443,27 +8740,29 @@
             '',
             '这一节只列**形状**，规则与注意事项在对应小节里（§1–§10），不在这里重复。',
             '',
-            '```',
-            '执行域   dsw 围栏包住 [[dsw]] … [[/dsw]]          域外不执行（只读兜底见 §7）；未闭合整域不执行   §1',
-            '修饰符   [[dsw atomic]] [[dsw dry]] [[dsw force]]                       §1',
+            '````',
+            '执行域   dsw 围栏（```dsw … ```，等价 <dsw> … </dsw>）  域外不执行；未闭合整域不执行   §1',
+            '修饰符   dsw 围栏后跟 atomic | dry | force（或 <dsw atomic> 等）           §1',
             '正文     <<< 内容 <<<                     短替换：edit /f "旧" "新"      §2',
-            '编码     write /f base64 <<<…<<<                                        §2',
-            '读       read /f | read /f 10-20 | read /f head=20 | read #a3f | read @p1',
+            '编码     write /f base64 <<<…<<<      静音告警：write /f --no-warn …     §2',
+            '读       read /f | read /f 10-20 | read /f full | read #a3f | read @p1',
             '写       write /f <<<…<<<   append /f <<<…<<<   edit /f "旧" "新"   edit /目录 "旧" "新"',
             '改       insert /f 12 <<<…<<<   insert /dst 25 from=/src 10-20   rmline /f 12-15   patch /f <<<…<<<',
             '批       apply <<< @@ /a → 内容 @@ /b → 内容 <<<   merge /out /01 /02   split /big 500   sort /f uniq',
             '搬       mkdir /d   move /a /b   copy /a /b   delete /f [recursive]   copy /src /dst 10-20',
             'glob     delete /tmp/*.txt force   copy /src/*.md /out   move /src/*.txt /out',
-            '找       grep /src "词" [-i -e -v -l -c ext= ctx= limit=]              §5',
-            '         find /src "*.js" [ext= depth= dirs sort=mtime since=]   diff /a /b',
+            '附件     upload /f（单文件）   upload /目录   upload /a /b（打成 zip）    §3.1',
+            '找       grep /路径 "词" [-i -e -v -l -c ext= ctx= limit=]（-n 不必写） §5',
+            '         find /路径 "*.js" [ext= depth= dirs sort=mtime since=]   diff /a /b',
             '看       list /d   tree /   stat /f',
-            '控制     cd /d   expect /f "必须出现的文本"                            §10',
+            '控制     cd /d   expect /f "必须出现的文本"（失败→本批回滚）           §10',
             '令牌     #a3f 锚点（±3 行）   @p1 路径令牌                             §4',
             '撤销     undo 1   redo 1   restore list   restore 1                    §10',
             '回执     OK AUTO PARTIAL NOOP SKIP DENY（优先级 PARTIAL > AUTO > OK）  §5',
+            '         PARTIAL 也包括「有参数被忽略」；AUTO 必附 diff',
             '收尾     ◆ 每条回复最后一行        ■ 原因：任务跑完 / 需要介入          §9',
-            '计划     plan on / add / done / doing / todo / del / clear / list      §8',
-            '```'
+            '计划     plan on / add / done|doing|todo <序号|last|文字> / del / clear §8',
+            '````'
         ].join('\n');
     }
 
@@ -8476,18 +8775,17 @@
         return [
             '你是 DSW 容器的操作员，可以读写容器里的虚拟文件系统：读写文件、检索、排序、切分合并、批量处理。',
             '',
-            '要执行操作，把命令写进执行域，并用代码围栏把整段包住（平台会原样保留围栏内字符、不渲染）—— 写命令在域外一律不执行：',
+            '要执行操作，把命令写进执行域：**一个带 `dsw` 标签的代码围栏**（平台会原样保留围栏内字符、不渲染；等价写法是 `<dsw> … </dsw>`）。写命令在域外一律不执行：',
             '',
             '```dsw',
-            '[[dsw]]',
             'read /',
-            '[[/dsw]]',
             '```',
-            '- 命令格式：每行一条，`操作 路径 [参数]`；多行正文用 `<<<` 开头、`<<<` 收尾，例如 `write /a.md` 换行 `<<<` 换行 内容 换行 `<<<`。正文里若含**一整行** `<<<` 会提前闭合正文 —— 改用更长的 `<<<<<`，或 `write /路径 base64` 把正文编码传入（含 JS/CSS 等特殊字符时首选）。**外层围栏已让正文成为字面量，正文不必再自己包围栏**；但正文里若出现一整行三个反引号会提前闭合外层围栏，这时把外层围栏加长（如四个反引号）即可。',
-            '- 只认这一套写法：域外的命令行，以及 `[read: /a]`、`§`、`fs` 围栏裸命令等旧写法，都不执行。**不记得命令就查，别猜**：`help` 按类别列出全部命令，`help <命令>` 给用法与常见坑（如 `help edit`）。',
-            '- `[[dsw atomic]]` = 任一失败则整条消息全部回滚（消息级）；`[[dsw dry]]` = 只校验不写盘（只作用于它自己那个域）。要让用户看到进度就用 `plan`：`plan add <条目>` 加一条，`plan doing|done|todo <序号>` 改状态（○ 待完成 ⟳ 进行中 ✓ 完成）。',
-            '- 回执里的两个令牌可以直接当路径用：`#a3f` 指向某一行（`edit #a3f <<<…<<<`；`read #a3f` 读该行 ±3 行，`read #a3f 20` 往下 20 行、`read #a3f -10` 往上 10 行），`@p1` 指向某个文件（`read @p1` / `edit @p1 "旧" "新"` / `merge /out @p1 @p2`）。',
+            '- 命令格式：每行一条，`操作 路径 [参数]`；多行正文 `<<<` 开、`<<<` 收（`write /a.md` → `<<<` → 内容 → `<<<`）。正文里含**一整行** `<<<` 会提前闭合 —— 改用 `<<<<<`，或 `write /路径 base64` 编码传入（含 JS/CSS 等特殊字符时首选）。**围栏已让正文成为字面量，正文不必再自己包围栏**；正文里出现一整行三个反引号就把外层围栏加长到四个。`grep` / `find` 的路径必须写在搜索词前面（`grep /src "词"`）；不认识的参数会被回执标成 `PARTIAL`，别指望它生效。',
+            '- 少来交互：优先批量（`apply` 一次写多个文件、`edit /目录 "旧" "新"`、glob、`grep -l`）与 `upload /目录`（一次打成 zip 附件，先看全项目再动手）；`read /f full` 一次读全，不必再去读落盘副本；`plan add X` 与 `plan done last` 可以同批写。',
+            '- ` ```dsw dry ` = 只校验不写盘（只作用于它自己那个域）；`atomic`（整条消息全回滚）默认别用 —— 默认只回滚失败的那一条、状态给 `PARTIAL`，更好定位；要整批保真用 `expect /f "文本"`（断言失败自动回滚本批）。要让用户看到进度就用 `plan`：`plan add <条目>` 加一条，`plan doing|done|todo <序号|last|文字>` 改状态（○ 待完成 ⟳ 进行中 ✓ 完成）。',
+            '- 回执里的两个令牌可以直接当路径用：`#a3f` 指向某一行（`edit #a3f <<<…<<<`；`read #a3f` 读该行 ±3 行，`read #a3f 20` 往下 20 行、`read #a3f -10` 往上 10 行），`@p1` 指向某个文件（`read @p1` / `edit @p1 "旧" "新"` / `merge /out @p1 @p2`）。`AUTO` 回执必带 diff，改了什么一目了然。',
             '- 每条回复的最后一行写 `◆` 收尾（容器靠它判断你说完了）。整个任务全部跑完、或需要用户介入（授权 / 选择 / 缺信息）时，最后一行**改写** `■ <一句原因>`（那时不要再写 `◆`）。',
+            '- 旧写法（旧标记 `[[dsw]]`、`[read: /a]`、`§`、`fs` 围栏裸命令、域外裸命令）都不执行。**不记得命令就查，别猜**：`help` 按类别列出全部命令，`help <命令>` 给用法与常见坑（如 `help edit`）。',
             '你这条回复完全输出完之前，容器不会执行、也不会插话打断你；手册**按节随取，别背全文**：`help` 看目录、`help §2`（或 `help <命令>`）取那一节、`read ' + SYS_MANUAL_PATH + '` 取全文（协议 ' + PROTO_VERSION + '）。'
         ].join('\n');
     }
@@ -8553,7 +8851,7 @@
         for (const s of got.secs) out.push('§' + s.num + ' ' + s.title + (s.summary ? '：' + s.summary : ''));
         out.push('');
         out.push('要用某一节：`help §2`（或 `help 正文` / `help 令牌` 按关键词取）；全文 `read ' + SYS_MANUAL_PATH + '`。');
-        out.push('上手先记这四节：§1 执行域 · §2 命令与正文 · §7 危险操作与权限 · §9 收尾符与终止符。');
+        out.push('上手先记这四节：§1 执行域（围栏写法）· §2 命令与正文 · §7 危险操作与权限 · §9 收尾符与终止符。');
         return out.join('\n');
     }
 
@@ -8611,18 +8909,29 @@
 
     // 冷启动微课：会话头几轮每轮轮播**一条**最小契约，轮完即停（少量多次 > 一次灌满）
     const MICRO_LESSONS = [
-        '命令必须写在 `[[dsw]] … [[/dsw]]` 里；域外一律不执行。',
+        '命令写在一个带 dsw 标签的代码围栏里（等价 <dsw> … </dsw>）；域外一律不执行。',
         '多行正文 `<<<` 开、`<<<` 收；正文里出现整行 `<<<` 就改用 `<<<<<`。',
-        '整段执行域要用 dsw 代码围栏包住；围栏内是字面量，正文不必再自己包围栏。',
+        '围栏内是字面量，正文不必再自己包围栏；特殊字符多就 `write /f base64`。',
         '每条回复的最后一行写 `◆`；任务全部跑完或要用户介入，改写 `■ 原因`。',
         '定位用令牌 —— `#a3f` 指某一行、`@p1` 指某个文件，直接当路径用。',
-        '不会的命令别猜 —— `help` 列全部，`help <命令>` 给用法与坑。'
+        '少来交互 —— 能批量就批量（apply / 目录 glob / grep -l），`upload /目录` 一次打包看全项目。'
     ];
     let microLessonStep = 0;
     function microLessonText(maxLessons) {
         const cap = Math.max(0, Number(maxLessons == null ? MICRO_LESSONS.length : maxLessons));
-        if (microLessonStep >= cap) return '';
-        return MICRO_LESSONS[microLessonStep++ % MICRO_LESSONS.length];
+        // 2.13.0：会话里已经出现过的微课不再重复发（原来只看步数，换 URL / 刷新后会从头再轮一遍）
+        let ctxText = '';
+        try { ctxText = String(contextHas('text') || ''); } catch (e) {}
+        let skipped = 0;
+        while (microLessonStep < cap && skipped < MICRO_LESSONS.length) {
+            const lesson = MICRO_LESSONS[microLessonStep++ % MICRO_LESSONS.length];
+            if (ctxText) {
+                const probe = String(lesson).replace(/[`*]/g, '').slice(0, 18);
+                if (probe && ctxText.indexOf(probe) !== -1) { skipped++; continue; }   // 上下文里有了 → 跳过
+            }
+            return lesson;
+        }
+        return '';
     }
     function resetManualFeed() { microLessonStep = 0; manualHintAt.clear(); }
 
@@ -8774,7 +9083,7 @@
 
     /* =========================================================================
      * 13 执行域闸门（§5.1 收敛版）—— 只有两态：
-     *   STRICT（默认，锁定）：只有 [[dsw]] … [[/dsw]] 里的命令会执行。
+     *   STRICT（默认，锁定）：只有 ```dsw 围栏（或 <dsw> … </dsw>）里的命令会执行。
      *   READ_FALLBACK（读兜底）：域外内容「像命令」（命令占比达标、长度受限）且**全是只读命令**时，
      *   只放行其中的只读命令。写命令与危险命令（delete/upload/restore/undo/redo）一律必须在执行域里。
      *
@@ -8793,8 +9102,17 @@
 
             // 决定这一条消息怎么执行；返回 { action, cmds, level, note, hint }
             decide(parsed) {
-                if (parsed.hasDomain) return { action: 'domain', cmds: parsed.domainCmds, level: 'domain', note: null };
+                if (parsed.hasDomain) {
+                    return {
+                        action: 'domain', cmds: parsed.domainCmds, level: 'domain', note: null,
+                        staleMark: (parsed.legacyMarks && parsed.legacyMarks.length) ? parsed.legacyMarks[0] : null
+                    };
+                }
                 if (parsed.unclosedDomains > 0) return { action: 'unclosed', cmds: [], level: 'STRICT', note: null };
+                // 旧协议标记（[[dsw]] 等）：不识别、不兼容，但也绝不静默 —— 直接给新写法。
+                if (parsed.legacyMarks && parsed.legacyMarks.length) {
+                    return { action: 'legacy', cmds: [], level: 'STRICT', mark: parsed.legacyMarks[0], note: null };
+                }
 
                 const bare = parsed.bare;
                 if (!bare || !bare.candidates.length) return { action: 'none', cmds: [], level: 'STRICT', note: null };
@@ -8804,7 +9122,7 @@
                     // 域外有写命令：不执行，并说清正确写法（危险命令的最终拦截在执行层 dangerAllowed）
                     return {
                         action: 'none', cmds: [], level: 'STRICT',
-                        hint: '检测到写命令但没放进执行域，本次未执行；请用 [[dsw]] … [[/dsw]] 包住'
+                        hint: '检测到写命令但没放进执行域，本次未执行；请用 ```dsw 代码围栏（或 <dsw> … </dsw>）包住'
                     };
                 }
                 const dominated = bare.ratio >= READ_FALLBACK_RATIO
@@ -9040,11 +9358,17 @@
         return { ok: true, removed: 0 };
     }
 
-    // 序号（1 起）或文字片段 → 唯一条目
+    // 序号（1 起）/ 文字片段 / `last`（刚加的那条）→ 唯一条目
     function planFindItem(ref) {
         const p = planProgress();
         const s = String(ref == null ? '' : ref).trim().replace(/^["'“”]|["'“”]$/g, '');
-        if (!s) return { error: '缺少条目：给序号（plan done 2）或文字片段（plan done 改造出站）' };
+        if (!s) return { error: '缺少条目：给序号（plan done 2）、`last`（最后一条）或文字片段（plan done 改造出站）' };
+        // 2.13.0 `last`：`plan add X` 与 `plan done …` 同批时序号要等回执才知道，
+        // 于是同批里根本标不准。`last` 直接指**当前最后一条**（含同批刚 plan add 的那条）。
+        if (/^(last|最后|最后一条|末尾|末条|新加的?)$/i.test(s)) {
+            if (!p.items.length) return { error: '计划还是空的，没有「最后一条」' };
+            return { item: p.items[p.items.length - 1] };
+        }
         if (/^\d+$/.test(s)) {
             const n = parseInt(s, 10);
             const hit = p.items.filter(function (i) { return i.index === n; })[0];
@@ -9185,7 +9509,7 @@
             return planResult('plan clear → 已清空（当前 0 条）', { planAction: 'clear' });
         }
         if (['done', 'doing', 'todo', 'del'].indexOf(sub) >= 0) {
-            if (!arg) return planFail(cmd, 'plan ' + sub + ' 缺少序号或文字片段', { fix: 'plan ' + sub + ' 2 或 plan ' + sub + ' 改造出站' });
+            if (!arg) return planFail(cmd, 'plan ' + sub + ' 缺少序号或文字片段', { fix: 'plan ' + sub + ' 2 · plan ' + sub + ' last（最后一条）· plan ' + sub + ' 改造出站' });
             const f = planFindItem(arg);
             if (f.error) return planFail(cmd, f.error);
             const it = f.item;
@@ -9952,7 +10276,7 @@
 
     /* --------- 「AI 还在输出吗」/「这条回复输出完了吗」（§9.2 闸3 加强） ---------
      * 目的有两个，都不能少：
-     *   ① 不执行半截命令：流式输出到一半就出现 [[dsw]] 时，正文/闭标记还没到，
+     *   ① 不执行半截命令：流式输出到一半就出现 ```dsw 开标记时，正文/闭标记还没到，
      *      此时执行会写进半截正文，甚至把「未闭合」的误判回执发出去；
      *   ② 不打断 AI 生成：生成中点「发送」会中断这次回答（各平台一致）。
      */
@@ -10229,7 +10553,7 @@
                         || (Date.now() - (led.at || 0)) < CONFIG.IDEMPOTENT_WINDOW_MS)));
                 const seen = processedText.get(msgEl) || (ledUsable ? led : null);
                 if (!(seen && seen.text === fullText)) {
-                    // 「等回复输出完」闸门：半截输出里出现 [[dsw]] 就执行会写半截正文，
+                    // 「等回复输出完」闸门：半截输出里出现 ```dsw 就执行会写半截正文，
                     // 而且此时发回执会打断 AI 这次生成。没输出完 → 不识别、不执行、不回执。
                     if (!isReplyComplete(msgEl, fullText)) {
                         waited = true;
@@ -10319,7 +10643,7 @@
             // #6 尾部还挂着未闭合的执行域 → 不信任这个符号：不提醒、不暂停、也不执行半截。
             const trust = terminateTrusted(fullText);
             if (!trust.ok) {
-                pushLog('终止符号 ' + TERMINATE_MARK + ' 后面还有未闭合的执行域：不信任（不提醒、不暂停），先补 [[/dsw]]', 'warn');
+                pushLog('终止符号 ' + TERMINATE_MARK + ' 后面还有未闭合的执行域：不信任（不提醒、不暂停），先补 ``` 或 </dsw>', 'warn');
                 return 'done';
             }
             notifyTerminate(marks.terminate);
@@ -10357,12 +10681,26 @@
         if (decision.action === 'unclosed') {
             return {
                 action: 'unclosed', decision: decision, batch: null,
-                receipt: composeNoop('执行域未闭合（缺少 [[/dsw]]），整域未执行', '补上闭标记后重发；未闭合的域永不执行（防半截命令）')
+                receipt: composeNoop('执行域未闭合（缺少 ``` 或 </dsw>），整域未执行', '补上闭标记后重发；未闭合的域永不执行（防半截命令）')
+            };
+        }
+        if (decision.action === 'legacy') {
+            // 旧协议标记：明确报错 + 给新写法（不兼容旧版，但绝不当没看见）
+            const at = decision.mark && decision.mark.line ? ('L' + decision.mark.line + ' ') : '';
+            return {
+                action: 'legacy', decision: decision, batch: null,
+                receipt: composeNoop(
+                    '协议标记已更换：' + at + '“' + ((decision.mark && decision.mark.raw) || '[[dsw]]') + '”不再识别，本条未执行任何命令',
+                    '执行域只用这两种（都是主流 Agent 的命令块形状）：'
+                    + '① ```dsw 代码围栏（推荐）：开头 ```dsw、结尾 ```；'
+                    + '② <dsw> … </dsw> 标签（修饰符写在标签里，如 <dsw atomic>）；'
+                    + '围栏内是字面量，正文不必再自己包围栏'
+                )
             };
         }
         const cmds = decision.cmds;
         if (!cmds.length) {
-            // 空执行域也必须回一条（A11：`[[dsw]][[/dsw]]` 以前整行不匹配开标记 → action=none → 完全静默）
+            // 空执行域也必须回一条（A11：`<dsw></dsw>` 以前整行不匹配开标记 → action=none → 完全静默）
             return {
                 action: 'empty', decision: decision, batch: null,
                 receipt: composeNoop('空执行域：域里没有任何有效命令（这条 NOOP 就是回执，不是没收到）',
@@ -10450,11 +10788,13 @@
             return {
                 ok: false, op: c.op, path: p, kind: 'denied', deniedBy: 'internal',
                 error: isPlan
-                    ? '系统区对 AI 只读：计划文件请用 plan 命令维护'
+                    ? '计划文件不要用 write / edit / patch 直接改：用 plan 命令'
                     : '系统区 / 回收站对 AI 只读：' + p,
                 fix: isPlan
-                    ? 'plan add / done / doing / todo / del / clear；要整篇重写就先 plan on 进入计划模式'
-                    : '只有人能在面板里改系统文件（文件页 → 阅读 / 编辑内容）；要留档请写用户目录，例如 write /notes.md',
+                    ? 'plan add <条目> 加一条；plan done|doing|todo <序号|last|文字片段> 改状态；plan del / clear。要整篇重写就先 plan on。'
+                    + '（同批里先 plan add 再 plan done last，不必等序号）'
+                    : '系统文件（含 ' + SYS_MANUAL_PATH + '）只有人能在面板里改；要查规范用 `help §N` 或 read ' + SYS_MANUAL_PATH
+                    + '；要留档请写用户目录，例如 write /notes.md',
                 denyHint: '内部区（' + SYS_PREFIX + '* 与 ' + TRASH_PREFIX + '*）对 AI 只读：可以 read / grep / list / tree / stat，'
                     + '不能写 / 删 / 移 / 建；' + SYS_PLAN_PATH + ' 是唯一例外，而且只在计划模式开启时能用 write/edit/patch'
             };
@@ -10499,13 +10839,19 @@
         // 结构化故障的病因诊断（未知命令成批出现时才有值）：指向真实原因，而不是末端症状
         const rawForDiag = (parsed.domains || []).map(function (d) { return d.rawText || ''; }).join('\n');
         const diagnosis = failed ? diagnoseParseIssue(rawForDiag, results) : null;
+        const rbPaths = (batch.rollbackPaths && batch.rollbackPaths.length) ? ('：' + batch.rollbackPaths.join('、')) : '';
+        const rollbackHint = batch.rolledBack && atomic
+            ? ('原子批次：首错已整批回滚' + rbPaths + '。下次去掉 atomic —— 默认的“只回滚失败那一条 + PARTIAL”更好定位')
+            : (batch.rolledBackByExpect
+                ? ('断言失败：本批写入已全部回滚' + rbPaths + '；改对后重发即可')
+                : null);
         const receipt = composeReceipt(results, {
             ms: Math.max(1, Date.now() - startedAt),
             steady: steady,
             cwd: cwd,
             diagnosis: diagnosis,
             manualHint: failed ? manualHintLine(results, diagnosis) : null,
-            hint: batch.rolledBack && atomic ? '原子批次：首错已整批回滚，修正后重发' : denyHint,
+            hint: rollbackHint || (decision.staleMark ? ('L' + decision.staleMark.line + ' 还留着旧协议标记「' + decision.staleMark.raw + '」：新写法是 ```dsw 围栏或 <dsw> … </dsw>') : denyHint),
             cwdHint: 'cwd=' + cwd + (decision.note ? '；' + decision.note : '')
         });
         return {
@@ -10536,6 +10882,7 @@
                 return;
             }
             if (r.action === 'unclosed') { setStatus('received', '执行域未闭合'); }
+            else if (r.action === 'legacy') { setStatus('received', '旧协议标记，未执行'); }
             else if (r.action === 'denied') { setStatus('received', r.denyKind === 'plan' ? '计划模式拦截' : '越权已拒绝'); }
             else if (r.action === 'empty') { setStatus('received', '空执行域'); }
             else {
@@ -10636,6 +10983,43 @@
         return parts.join('\n\n');
     }
 
+    /* 2.13.0 上下文里已有的东西不再重复投喂（省 token，也省 AI 的注意力）。
+     * 判据用**会话里真实存在的文本**，不是本地记账：刷新 / 换 URL / 面板手动重注入都能撞上。
+     * 三种情形都跳过：
+     *   ① 协议信息已在会话里 → 整个 payload 都不发；
+     *   ② 只发过提示词、没发过目录卡 → 只补目录卡；
+     *   ③ 两者都在 → 什么都不发。
+     * 缓存 3 秒，避免每轮扫描整页文本。 */
+    const TOC_MARK = '## 手册目录';
+    let ctxScanAt = 0, ctxScanVal = null;
+    function contextHas(mark) {
+        const now = Date.now();
+        if (!ctxScanVal || now - ctxScanAt > 3000) {
+            let t = '';
+            try { t = threadText(); } catch (e) {}
+            if (!t) { try { t = String((document.body && document.body.innerText) || ''); } catch (e) {} }
+            const promptIn = t.indexOf('你是 DSW 容器的操作员') !== -1 || t.indexOf('proto=DSW2') !== -1;
+            const tocIn = t.indexOf(TOC_MARK) !== -1;
+            const manualIn = t.indexOf('# DSW 容器手册') !== -1;
+            ctxScanVal = { prompt: promptIn, toc: tocIn || manualIn, text: t };
+            ctxScanAt = now;
+        }
+        if (mark === 'prompt') return ctxScanVal.prompt;
+        if (mark === 'toc') return ctxScanVal.toc;
+        if (mark === 'text') return ctxScanVal.text || '';
+        return false;
+    }
+    function invalidateContextScan() { ctxScanAt = 0; ctxScanVal = null; }
+
+    /** 按上下文现状拼注入内容；返回 '' = 什么都不用发。 */
+    function injectionPayloadFresh() {
+        const hasPrompt = contextHas('prompt');
+        const hasToc = contextHas('toc');
+        if (hasPrompt && hasToc) return '';
+        if (hasPrompt) return manualTOC();              // 只缺目录卡
+        return injectionPayload();                        // 首投：提示词 + 目录卡（或全文）
+    }
+
     function injectionState() { return Store.get(bootstrapStateKey(), null) || {}; }
 
     // #5 页面里已经能看到协议信息（刷新/换 URL 后 DOM 还在）→ 把「已注入」补记到当前会话键，
@@ -10672,14 +11056,17 @@
     }
 
     // 信息在前、用户指令在后（模型最后看到的是用户要求）
-    function buildInjection(userText) {
-        const payload = injectionPayload();
+    // 2.13.0：payload 走 injectionPayloadFresh() —— 上下文里已有的部分不再重复注入。
+    function buildInjection(userText, payload) {
+        const p = (payload == null) ? injectionPayloadFresh() : payload;
         const t = String(userText == null ? '' : userText).trim();
-        return t ? (payload + '\n\n---\n\n' + t) : payload;
+        if (!p) return t;
+        return t ? (p + '\n\n---\n\n' + t) : p;
     }
 
     function markInjected() {
         const st = injectionState();
+        invalidateContextScan();      // 2.13.0：刚投过的内容下一次扫描要重新判定
         st.injectedAt = Date.now();
         st.retry = (st.retry || 0) + 1;
         st.key = currentConversationKey();
@@ -12117,7 +12504,7 @@
      * 双模式：先试**页面附件入口**（平台声明了 attach.fileInput）把文件放进聊天；
      * 不行再回退浏览器下载，并在回执里说清是哪一种、为什么。碰 document/File/DataTransfer 的都在这里。
      */
-    function attachToComposer(name, content) {
+    function attachToComposer(name, content, mime) {
         try {
             const cfg = (typeof PLATFORM !== 'undefined' && PLATFORM && PLATFORM.attach) || null;
             const sel = cfg && cfg.fileInput;
@@ -12126,7 +12513,7 @@
             const input = document.querySelector(sel);
             if (!input) return { ok: false, why: '页面上找不到文件输入框' };
             if (typeof File !== 'function' || typeof DataTransfer !== 'function') return { ok: false, why: '环境不支持 File/DataTransfer' };
-            const file = new File([content], name, { type: cfg.mime || 'text/plain;charset=utf-8' });
+            const file = new File([content], name, { type: mime || cfg.mime || 'text/plain;charset=utf-8' });
             const dt = new DataTransfer();
             dt.items.add(file);
             input.files = dt.files;
@@ -13346,6 +13733,8 @@
                 items = [
                     { t: '新建文件夹', icon: ic('folderPlus'), a: 'mkdir' },
                     { t: '新建文件', icon: ic('filePlus'), a: 'mkfile' },
+                    // 2.13.0 批量附件：当前目录（含子目录）一键打包成 zip 发到聊天里
+                    { t: '把当前目录打成附件（zip）', icon: ic('download'), a: 'attachDir' },
                     { t: '更多操作…', icon: ic('settings'), a: 'more' },
                     { t: '批量选择', icon: ic('check'), a: 'batchToggle' }
                 ];
@@ -13394,6 +13783,9 @@
             '<div class="ph1">' +
             '<span class="dot' + (paused ? ' pz' : '') + '"></span>' +
             '<span class="ttl">' + esc(panelTitle()) + '</span>' +
+            // 2.13.0：收起工作区从 ⋮ 菜单里提出来，放在「更多」旁边的图标 —— 单手操作时
+            // 「关掉面板」是最高频动作，藏在两层菜单里既慢又难找。
+            '<button type="button" class="ibtn" data-a="close" aria-label="收起工作区" title="收起工作区">' + ic('x') + '</button>' +
             '<button type="button" class="ibtn' + (open ? ' on' : '') + '" data-a="menu" aria-label="更多"' +
             ' aria-expanded="' + (open ? 'true' : 'false') + '">' + ic('moreV') + '</button>' +
             '</div>' +
@@ -13560,9 +13952,9 @@
             const box = el('div', 'empty');
             box.innerHTML = '这个文件夹是空的。<br>可以让 AI 写文件，也可以自己建：' +
                 '<div class="eg">write ' + esc((uiState.filesPath === '/' ? '' : uiState.filesPath) + '/a.md') + '</div>' +
-                '<div class="eg">[[dsw]] write /hello.md &lt;&lt;&lt;你好&lt;&lt;&lt; [[/dsw]]</div>';
+                '<div class="eg">```dsw\nwrite /hello.md\n<<<\n你好\n<<<\n```</div>';
             box.appendChild(button('复制示例', 'sm', function () {
-                copyText('[[dsw]]\nwrite /hello.md\n<<<\n你好\n<<<\n[[/dsw]]');
+                copyText('```dsw\nwrite /hello.md\n<<<\n你好\n<<<\n```');
                 showToast('示例已复制，粘给 AI 即可');
             }));
             body.appendChild(box);
@@ -14017,7 +14409,7 @@
             list.push(r);
         }
         if (!list.length && !uiLogs.length) {
-            body.appendChild(el('div', 'empty', '还没有回执。\nAI 在 [[dsw]] 块里发命令后，这里会显示每一条回执与裁决理由。'));
+            body.appendChild(el('div', 'empty', '还没有回执。\nAI 在 ```dsw 代码围栏里发命令后，这里会显示每一条回执与裁决理由。'));
             return;
         }
         for (const r of list) {
@@ -14239,7 +14631,7 @@
         /* 协议 */
         h += accItem('set.proto', '协议',
             '<div class="set col"><span class="lb">执行域与读兜底<span class="sub">' +
-            '只有 [[dsw]] … [[/dsw]] 里的命令会执行；读兜底只在域外内容「像命令」且全是只读命令时生效，' +
+            '只有 ```dsw 围栏（或 <dsw> … </dsw>）里的命令会执行；读兜底只在域外内容「像命令」且全是只读命令时生效，' +
             '写命令与危险命令（delete / upload / restore / undo / redo）永不放宽。' +
             '</span></span></div>' +
             '<div class="set btns"><button class="btn sm" data-a="resetAnchor">重置锚点表</button>' +
@@ -14395,7 +14787,7 @@
             '<button class="btn sm" data-a="copyDiag">复制诊断信息</button></div>' +
             '<div class="set col"><span class="lb">协议速览<span class="sub">' +
             '完整规范在容器文件 ' + esc(SYS_MANUAL_PATH) + '（协议 ' + esc(PROTO_VERSION) + '）。\n' +
-            '执行域：[[dsw]] … [[/dsw]]；域外永不执行，未闭合永不执行。\n' +
+            '执行域：```dsw … ```（等价 <dsw> … </dsw>）；域外永不执行，未闭合永不执行。\n' +
             '命令（' + COMMAND_NAMES.length + ' 个）：' + COMMAND_NAMES.join(' ') + '。\n' +
             '回执状态码：OK / AUTO / PARTIAL / NOOP / SKIP / DENY。\n' +
             '检查点：' + esc(ckpt ? (fmtClock(ckpt.at) + ' · ' + ckpt.batches + ' 批次 · ' + ckpt.files + ' 文件') : '本会话暂无检查点') +
@@ -14745,7 +15137,13 @@
             case 'refresh': showToast('已刷新'); render(); break;
             case 'inject':
                 try {
-                    enqueueOutbound(injectionPayload(), 'bootstrap');
+                    const payload = injectionPayloadFresh();      // 2.13.0：上下文已有则不重发
+                    if (!payload) {
+                        pushLog('面板注入：协议信息已在会话里，跳过');
+                        showToast('上下文里已有，无需重复注入');
+                        break;
+                    }
+                    enqueueOutbound(payload, 'bootstrap');
                     pushLog('面板注入：协议信息已排队');
                     showToast('协议信息已排队发送');
                     setStatus('pending', '协议信息已排队');
@@ -14920,6 +15318,15 @@
             case 'edSelAll': edSelectAll(); break;
             case 'edCopy': edCopy(); break;
             case 'edPaste': edPaste(); break;
+            case 'attachDir': {
+                const dir = uiState.filesPath || '/';
+                const r = uploadZip({ op: 'upload', line: 0 }, [dir], [dir], []);
+                showToast((r && r.summary) ? r.summary : '已生成附件', (r && r.ok) ? '' : 'warn');
+                pushLog('批量附件：' + dir + ' → ' + ((r && r.summary) || '已处理'));
+                closeMenu();
+                render();
+                break;
+            }
             case 'attach':
                 if (uiState.editing) {
                     try {
@@ -14930,14 +15337,14 @@
                 break;
             case 'delFile': if (uiState.editing) uiDelete(uiState.editing.path, function () { uiState.view = 'list'; uiState.editing = null; }); break;
             case 'copyEg':
-                copyText('[[dsw]]\nwrite /hello.md\n<<<\n你好\n<<<\n[[/dsw]]');
+                copyText('```dsw\nwrite /hello.md\n<<<\n你好\n<<<\n```');
                 showToast('示例已复制');
                 break;
             case 'resetAnchor': AnchorStore.reset(); pushLog('锚点表已重置'); showToast('锚点表已清空'); render(); break;
             case 'resetIdem': gateReset(); pushLog('幂等批次表已重置'); showToast('幂等批次表已清空'); render(); break;
             case 'flush': flushNow(true); showToast('已触发发送'); render(); break;
             case 'copyInject': {
-                const payload = injectionPayload();
+                const payload = injectionPayloadFresh() || injectionPayload();
                 copyText(payload);
                 showToast('注入内容已复制（' + payload.length + ' 字符）');
                 break;
@@ -15119,7 +15526,9 @@
         if (bootFallbackKey === key) return false;      // 同一个会话只补发一次
         bootFallbackKey = key;
         markInjected();
-        enqueueOutbound(injectionPayload(), 'bootstrap');
+        const payload = injectionPayloadFresh();       // 2.13.0：上下文里已有的部分不再重发
+        if (!payload) { pushLog('协议信息已在会话里，无需补发'); return false; }
+        enqueueOutbound(payload, 'bootstrap');
         pushLog('注入没能并进你那条消息（' + (reason || '未知') + '）：已排队，等 AI 说完再补发协议信息', 'warn');
         setStatus('pending', '协议信息待补发');
         return true;
@@ -15133,9 +15542,13 @@
             const userText = composerValue(composer).trim();
             if (!userText) return false;
 
+            // 2.13.0：上下文里提示词 / 目录卡都已在 → 本次不接管（避免把同一份东西再塞一遍）
+            const fresh = injectionPayloadFresh();
+            if (!fresh) { markInjected(); invalidateContextScan(); pushLog('协议信息已在会话里，本次发送不再注入'); return false; }
+
             // #7 先设接管窗口，再改输入框、再发送：用户这一次按下产生的其它事件全部无效
             injectGuardUntil = Date.now() + 1600;
-            const combined = buildInjection(userText);
+            const combined = buildInjection(userText, fresh);
             const setResult = setComposerText(composer, combined);
             if (!setResult || !setResult.ok) {
                 pushLog('新对话注入失败：' + ((setResult && setResult.error) || '写输入框失败'), 'warn');
@@ -15143,6 +15556,7 @@
                 return false;
             }
             markInjected();
+            invalidateContextScan();
             markSelfSent(combined);
             witnessSend('user-inject');
             pushLog('新对话注入：提示词' + (CONFIG.INJECT_MANUAL !== false ? ' + 手册' : '') + '已与你的消息合并为一条（' + combined.length + ' 字符）');
