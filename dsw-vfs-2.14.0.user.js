@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.13.5
-// @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压
+// @version      2.14.0
+// @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压；2.13.6 首次运行的打开顺序收紧为硬保证：**首屏绝不自动展开工作区、也绝不自动弹引导层**，只有用户点悬浮球 → 面板打开 → 引导层才跟着打开（createUI 里显式 closePanel 一次，2.13.4 那句「点球打开工作区」继续挂在球旁）；补掉延迟 120ms 里用户又收回面板时引导层仍盖上来的竞态；「内容存在哪里」这一栏在**设置之后、完成之前**加一根旋转加载动画（引导层与设置页共用同一段 HTML 与同一个忙标志，搬家/授权要几百毫秒到几秒，没有它用户会以为按钮没生效而连点）；切 gm/opfs、绑定、授权、解绑四个动作合并到 runMediaOp 一条路径 —— 引导层里切介质以前完全没上锁（连点两下就是两次并发搬家，内容会分裂）、showDirectoryPicker 同步抛错时忙标志永远清不掉导致按钮永久失效，这两类都已修掉；删掉与 toggleCfg 重复的 applyCfgSideEffects 与无人调用的 setFolderNameForTest；2.14.0 计划模式重新定位：**只负责展示与上下文同步，不再是权限闸门**——开计划时 AI 的 write/edit/delete/mkdir 全部照常（原来「计划模式：写操作已拦截」那一层连同 planDenied 一起删掉了；系统区只读是另一回事，仍照拦，而且现在报的是它自己的理由、不再被计划模式的理由盖住）；**AI 可自主 plan on / plan off**，不再需要用户确认；计划窗口从面板头下方**改为吸附在宿主输入框上方**（挂到 root 而不是 panel 里——panel 带 transform，会成为 fixed 的包含块，放在里面面板一收计划条就跟着跑），默认折叠且只占左侧半宽、右侧半宽留空给宿主页面的「向下滚动」按钮（容器 pointer-events:none，只有 .pin 吃点击），展开时占满整行；条目补上**更新时间与备注**（按条目文字存一份会话级元数据，不污染给 AI 读的 plan.md），新增 `plan edit <定位> <新内容>` 与 `plan note <定位> <备注>`；状态标为已完成时播一道**划线动画**（未完成/进行中不划）——这里踩到一个坑：一次改动会重画两遍（planTouched → renderPlanBar + refreshUI → render），单纯用「见过就不画」会让动画一帧都没画就没了，改成转换时把条目挂进一个短窗口，同一次改动的所有重画都保留动画、窗口过后不再重播；**用户每发一条消息都会自动附上最新计划状态**（新对话首条的协议注入路径也一并附上；与回执那条通道共用「自动同步计划状态」一个开关），所以 AI 与用户看到的始终是同一份、下一轮就是最新的
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
 // @match        https://deepseek.com/*
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.13.5';
+    const VERSION = '2.14.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -5316,7 +5316,7 @@
         cd: { kind: 'control', desc: '切换工作目录', example: 'cd /src' },
         expect: { kind: 'control', desc: '断言（失败标 PARTIAL）', example: 'expect /src/a.js "export const add"' },
         help: { kind: 'read', desc: '查命令用法（不必背命令表）', example: 'help edit' },
-        plan: { kind: 'plan', desc: '计划模式与条目状态（on/list/add/done/doing/todo/del/clear）', example: 'plan add 改造出站节奏器' }
+        plan: { kind: 'plan', desc: '计划模式与条目（on/off/list/add/edit/note/done/doing/todo/del/clear）', example: 'plan add 改造出站节奏器' }
     };
     const COMMAND_NAMES = Object.keys(COMMANDS);
 
@@ -7181,11 +7181,6 @@
             if (VirtualFS.isInternal(v.path)) {
                 return fail(cmd, v.path, '内部区（' + SYS_PREFIX + ' 与 ' + TRASH_PREFIX + '）对 AI 只读，apply 不能写这里', { kind: 'denied' });
             }
-            if (typeof isPlanModeActive === 'function' && isPlanModeActive()) {
-                return fail(cmd, v.path, '计划模式：写操作被拦（退出计划模式后再改文件）', {
-                    kind: 'denied', fix: 'plan list 看计划；要退出请让用户点面板「计划」→ 退出'
-                });
-            }
             writes.push({ path: v.path, content: f.content });
         }
         VirtualFS.beginBatch();                    // 嵌套批次：apply 自己是一个原子单元
@@ -8795,14 +8790,13 @@
             '**闸门按这个顺序判，先命中的那个决定回执措辞**（同一条命令可能踩多个闸门，只报第一个）：',
             '',
             '1. 危险命令必须在执行域里（`delete`（**单个文件也算**）、`upload`、`restore`、`undo`、`redo`）；',
-            '2. 计划模式（开启时拦一切写，计划文件 `/__sys/plan.md` 例外）；',
-            '3. 内部区只读（`/__sys/*`、`/__trash/*`）。',
+            '2. 内部区只读（`/__sys/*`、`/__trash/*`）。',
             '',
-            '所以同一条 `write /__sys/x`：计划模式开着 → 回执写「计划模式：写操作已拦截」；没开计划 → 写「系统区 / 回收站对 AI 只读：…」。两个都对，只是先到先报。',
+            '（2.14.0 起**只剩这一层**：计划模式不再拦写，开着计划模式时你的写权限与平时完全一样。）',
             '',
             '**系统区 `/__sys/*` 与回收站 `/__trash/*` 对你只读**：`read` / `grep` / `list` / `tree` / `stat` 可以，**不能** `write` / `append` / `edit` / `patch` / `mkdir` / `move` / `copy` / `delete`（回执直接 `DENY`）。被拒的只是那一条，同批对用户目录的写照常执行。',
             '',
-            '- 唯一例外是计划文件 `/__sys/plan.md`：用 `plan add/done/doing/todo/del/clear` 维护；要整篇重写就先 `plan on`，再 `write /__sys/plan.md`。',
+            '- 计划文件 `/__sys/plan.md` 也走只读：用 `plan add/edit/note/done/doing/todo/del/clear` 维护（它们写的就是这个文件，但走专用通道，回执更干净）。',
             '- 系统文件（含 `/__sys/手册.md`）只有人能在面板里改（文件页 → 阅读 / 编辑内容）。要留档、要写笔记 → 写用户目录，例如 `write /notes.md`。',
             '- `grep` **能**搜 `/__sys/*`（含手册本身；不写路径 = 从 `/` 整容器搜）。只有 `/__trash/*` 不参与 `grep`。',
             '',
@@ -8825,25 +8819,28 @@
             '',
             '| 写法 | 状态 | 符号 |',
             '| --- | --- | --- |',
-            '| `- [ ] 条目` | 待完成 | `○` |',
+            '| `- [ ] 条目` | 未完成 | `○` |',
             '| `- [~] 条目` | 进行中 | `⟳` |',
-            '| `- [x] 条目` | 完成 | `✓` |',
+            '| `- [x] 条目` | 已完成 | `✓` |',
             '',
             '`plan` 命令（计划内外都能用；AI 可以自己开启计划）：',
             '',
             '| 命令 | 作用 |',
             '| --- | --- |',
-            '| `plan on` | 开启计划模式：写操作被拦截，只有计划文件本身能写（同批后面的写命令当场就被拦） |',
+            '| `plan on` | 开启计划模式（你自己判断需要就开，不用问用户）：计划会显示给用户，并且每条消息自动附带最新状态。**不改变你的编辑权限** |',
             '| `plan list` | 列出条目与状态（等价 `read /__sys/plan.md`） |',
-            '| `plan add <条目>` | 追加一条「待完成」 |',
-            '| `plan done <序号 / last / 文字>` | 标记完成（`plan doing …` 进行中、`plan todo …` 待完成同理）；**`last` = 最后一条** |',
+            '| `plan add <条目>` | 追加一条「未完成」 |',
+            '| `plan edit <序号 / last / 文字> <新内容>` | 改条目内容（用户界面上的更新时间会跟着刷新） |',
+            '| `plan note <序号 / last / 文字> <备注>` | 写备注（省略备注 = 清掉）；备注会显示给用户，但不改更新时间 |',
+            '| `plan done <序号 / last / 文字>` | 标记完成（`plan doing …` 进行中、`plan todo …` 未完成同理）；**`last` = 最后一条** |',
             '| `plan del <序号或文字>` / `plan clear` | 删除一条 / 清空 |',
-            '| `plan off` | ❌ **只有用户能退**（面板「计划」→ 退出计划），AI 写会被回绝 |',
+            '| `plan off` | 关闭计划模式（不再附带计划状态） |',
             '',
             '- ✅ `plan done 2`（按序号）、`plan done last`（最后一条，同批里 `plan add` 之后直接用它标完成）、`plan done 改造出站`（按文字片段，唯一命中才认）。',
             '- ⚠ 计划**只用 `plan` 命令维护，不要裸写 `/__sys/plan.md`**：对计划文件用 `write` / `edit` / `patch` 会被 `DENY`（回执直接告诉你改用 `plan`）；就算绕过去了，平台也会把行首的 `- [ ]` 当 Markdown 吃掉，条目会解析成 0 条。',
-            '- ✅ 计划模式开启后，容器**每一轮都附带当前计划与每条状态**，不必再 `read`。它是**独立的一块**、附在同一条消息末尾（不是回执内部）；计划为空、面板关掉「每轮附带计划进度」、或正处在终止符暂停时都不附。',
-            '- ❌ 计划模式下写其它文件 → 回执 `DENY`。先把计划改好，等用户退出计划模式再动文件。',
+            '- ✅ 计划模式开启后，容器在两条通道上都附带当前计划与每条状态：① 容器发出的每一条回执；② **用户每发一条消息，容器会把最新计划附在用户那条后面一起发出去**（附的是发送那一刻的状态，所以下一轮总是最新的）。计划为空、面板关掉「每轮附带计划进度」、或正处在终止符暂停时都不附。',
+            '- ✅ 状态变化会**实时**反映到用户界面的计划窗口里；标记为完成时那条会播放一道划线动画，未完成 / 进行中不划线。',
+            '- ✅ **计划模式不限制你**：开着它照样能 write / edit / delete / mkdir / move，它只负责展示与同步上下文。',
             '',
             '## 9. 收尾符与终止符',
             '',
@@ -8880,7 +8877,7 @@
             '- 撤销之后又发生新写入，重做分支作废（经典撤销栈语义），回执会说明回到第几档、动了哪些路径。',
             '- 同一个批次里也可以写 `undo` / `redo`：容器会先把本批尚未记档的写入物化成「本批这一档」再拨游标，所以 `write x1` → `write x2` → `undo 1` → `redo 1` 是互逆的，不会越过本批去动上一条历史。',
             '- `dry` 也是逐条的：只有写了 `dry` 的那个域整域回滚（作用范围见 §1）。回执首行永远是 `⟦fs⟧ …` 信封，`◦ dry …` 出现在**逐条事实**里：读命令标「预演：dry 结束即回滚」，写命令标「只校验，未写入」。dry 域里的 `read` / `list` / `stat` 看到的是「假设写完之后」的预演状态（这正是 dry 的用途），**批次一结束全部回滚**；下一轮再读就不存在了，别把预演当成真写成功。',
-            '- 越权（系统区写 / 计划模式写）只拒那一条：同批其它命令照常执行，被拒的那条回一行 `DENY` 事实。',
+            '- 越权（系统区写）只拒那一条：同批其它命令照常执行，被拒的那条回一行 `DENY` 事实。',
             '',
             '## 11. 速查',
             '',
@@ -8907,7 +8904,7 @@
             '回执     OK AUTO PARTIAL NOOP SKIP DENY（优先级 PARTIAL > AUTO > OK）  §5',
             '         PARTIAL 也包括「有参数被忽略」；AUTO 必附 diff',
             '收尾     ◆ 每条回复最后一行        ■ 原因：任务跑完 / 需要介入          §9',
-            '计划     plan on / add / done|doing|todo <序号|last|文字> / del / clear §8',
+            '计划     plan on / off / add / edit / note / done|doing|todo <序号|last|文字> / del / clear §8',
             '````'
         ].join('\n');
     }
@@ -9296,25 +9293,27 @@
 /* >>> 16-plan.js */
     /* ---- 本模块专属常量（原 CONFIG 项；只在本模块用到，2026 收敛搬进来） ---- */
     const PLAN_INJECT_MAX_ITEMS = 20;   // 每轮附带的计划条目上限（超出只报总数）
+    const PLAN_ATTACH_MARK = '【当前计划】';   // 2.14.0：附加块的标记（兼作「已附加过」的判据）
 
     /* =========================================================================
-     * 16 计划模式（§11.1）—— 计划 = 容器文件 /__sys/plan.md
+     * 16 计划模式（§8）—— 计划 = 容器文件 /__sys/plan.md
      *
      *   · 一条一行，三种状态（符号固定，AI 与人都一样）：
-     *       - [ ] 待完成   ○
+     *       - [ ] 未完成   ○
      *       - [~] 进行中   ⟳
-     *       - [x] 完成     ✓
-     *   · 开启方式两种：① 用户在面板「设置 → 计划模式」手动开；
-     *                  ② AI 用命令 `plan on` 开（退出只能由用户确认：写操作闸门不能被 AI 自己放开）。
-     *   · 开启后：所有写操作被拦截（唯一例外 = 计划文件本身，AI 随时能改计划），
-     *     并且每一轮出站消息都会搭车带上当前计划与每条的状态（并入同一条消息，不额外发）。
+     *       - [x] 已完成   ✓
+     *   · 2.14.0 重定位：**计划模式只负责「展示 + 上下文同步」，不再是权限闸门**。
+     *     开启后 AI 的编辑权限与普通模式**完全一致**（原「开计划就拦一切写」的那层已删除）。
+     *   · 开启方式两种：① 用户手动开；② AI 自己判断需要就 `plan on`（无需用户触发或确认）。
+     *   · 开启后：每一轮出站消息搭车带上当前计划，用户**每次发消息**也会自动附上最新状态。
      *   · AI 用普通 read / write / edit 也能维护本文件；`plan` 命令只是更省事的入口。
      * ====================================================================== */
 
     const PLAN_STORE_PREFIX = 'dsw2:plan:';
 
     const PLAN_SYMBOLS = { done: '✓', doing: '⟳', todo: '○' };
-    const PLAN_LABELS = { done: '完成', doing: '进行中', todo: '待完成' };
+    // 2.14.0：文案改成用户口径的「未完成 / 进行中 / 已完成」（符号不变，AI 与人始终一致）
+    const PLAN_LABELS = { done: '已完成', doing: '进行中', todo: '未完成' };
     const PLAN_CYCLE = ['todo', 'doing', 'done'];         // 点一下符号 → 下一个状态
     const PLAN_BOX_STATUS = { ' ': 'todo', x: 'done', X: 'done', '~': 'doing', '-': 'doing', '/': 'doing' };
     const PLAN_ITEM_RE = /^\s*(?:[-*+]\s*)?(?:\[([ xX~\-/])\]|([○⟳✓]))\s*(.+?)\s*$/;
@@ -9324,7 +9323,7 @@
     const PLAN_HEADER = [
         '# 计划',
         '',
-        '<!-- 一条一行：- [ ] 待完成 ○ ／ - [~] 进行中 ⟳ ／ - [x] 完成 ✓；也可以用 plan 命令维护 -->',
+        '<!-- 一条一行：- [ ] 未完成 ○ ／ - [~] 进行中 ⟳ ／ - [x] 已完成 ✓；也可以用 plan 命令维护 -->',
         '<!-- 例：- [ ] 读取现有实现    - [~] 改造出站    - [x] 写测试 -->',
         ''
     ].join('\n');
@@ -9338,6 +9337,8 @@
         doing: 'doing', progress: 'doing', wip: 'doing', 进行中: 'doing', 进行: 'doing',
         todo: 'todo', pending: 'todo', 待办: 'todo', 待完成: 'todo', 未完成: 'todo',
         del: 'del', delete: 'del', rm: 'del', remove: 'del', drop: 'del', 删除: 'del', 删: 'del',
+        edit: 'edit', set: 'edit', modify: 'edit', change: 'edit', 编辑: 'edit', 修改: 'edit', 改: 'edit', 设为: 'edit',
+        note: 'note', remark: 'note', memo: 'note', 备注: 'note',
         clear: 'clear', reset: 'clear', 清空: 'clear', 重置: 'clear'
     };
 
@@ -9349,12 +9350,80 @@
     }
 
     function savePlanState(s) {
-        // 批内（dry 校验 / atomic 回滚）改了计划状态也要能还原，否则「dry plan on」会把闸门真打开
+        // 批内（dry 校验 / atomic 回滚）改了计划状态也要能还原（否则「dry plan on」会留下一个真的开启态）
         try { VirtualFS.batchRemember(planKey()); } catch (e) {}
         Store.set(planKey(), s);
     }
 
     function isPlanModeActive() { return !!getPlanState().active; }
+
+    /* ---------------- 条目附元（更新时间 / 备注）----------------
+     * 为什么不写进 plan.md：计划文件是要给 AI 读的协议文件，每行多挂一串时间戳会污染正文、
+     * 还会干扰 planFindItem 的文字片段匹配。而展示侧（需求10）只要「这条什么时候改的 / 备注是什么」。
+     * 所以元数据单独放一份会话级映射，**key = 条目文字**（内容就是身份）。
+     * 改文字时把元数据搬到新 key（planEditText 负责），删条目时自然被清（prunePlanMeta）。 */
+    function planMetaKey() { return planKey() + ':meta'; }
+    function getPlanMeta() { const m = Store.get(planMetaKey(), null); return (m && typeof m === 'object') ? m : {}; }
+    function savePlanMeta(m) { try { VirtualFS.batchRemember(planMetaKey()); } catch (e) {} Store.set(planMetaKey(), m || {}); }
+
+    function planMetaOf(text) {
+        const m = getPlanMeta();
+        const e = m[String(text == null ? '' : text)];
+        return (e && typeof e === 'object') ? e : null;
+    }
+    // upsert：at 每次都刷成「最近一次改动时间」，note 单独保留（改状态不该抹掉备注）
+    function notePlanItem(text, patch) {
+        const k = String(text == null ? '' : text);
+        if (!k) return null;
+        const m = getPlanMeta();
+        const prev = (m[k] && typeof m[k] === 'object') ? m[k] : {};
+        const next = { at: Date.now() };
+        if (prev.at) next.at = patch && patch.keepAt ? prev.at : Date.now();
+        if (prev.note) next.note = prev.note;
+        if (patch) {
+            if ('note' in patch) { if (patch.note) next.note = String(patch.note); else delete next.note; }
+            if (patch.at) next.at = patch.at;
+        }
+        m[k] = next;
+        savePlanMeta(m);
+        return next;
+    }
+    // 条目文字改了 → 元数据跟着搬家，不丢更新时间与备注
+    function movePlanMeta(oldText, newText) {
+        const a = String(oldText == null ? '' : oldText), b = String(newText == null ? '' : newText);
+        if (!a || !b || a === b) return;
+        const m = getPlanMeta();
+        if (m[a]) { m[b] = m[a]; delete m[a]; savePlanMeta(m); }
+        notePlanItem(b, {});
+    }
+    // 只留当前还在的条目（删条目 / 改文字后清理）
+    function prunePlanMeta(items) {
+        const m = getPlanMeta();
+        const keys = Object.keys(m);
+        if (!keys.length) return;
+        const alive = {};
+        for (const it of items) alive[it.text] = true;
+        let dirty = false;
+        for (const k of keys) if (!alive[k]) { delete m[k]; dirty = true; }
+        if (dirty) savePlanMeta(m);
+    }
+    // 相对时间：刚刚 / 3 分钟前 / 昨天 14:20 / 08-04 14:20
+    function fmtPlanWhen(ts) {
+        const n = Number(ts) || 0;
+        if (!n) return '';
+        const d = new Date(n);
+        const p2 = function (v) { return String(v).padStart(2, '0'); };
+        const hm = p2(d.getHours()) + ':' + p2(d.getMinutes());
+        const diff = Date.now() - n;
+        if (diff >= 0 && diff < 60000) return '刚刚';
+        if (diff >= 0 && diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
+        const today = new Date();
+        const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+        if (sameDay) return '今天 ' + hm;
+        const y = new Date(Date.now() - 86400000);
+        if (d.getFullYear() === y.getFullYear() && d.getMonth() === y.getMonth() && d.getDate() === y.getDate()) return '昨天 ' + hm;
+        return p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + hm;
+    }
 
     function planTouched() {
         try { renderPlanBar(); } catch (e) {}
@@ -9369,8 +9438,8 @@
         s.by = by || 'user';
         savePlanState(s);
         ensurePlanFile();
-        pushLog('已进入计划模式（写操作被拦截，计划文件 ' + SYS_PLAN_PATH + ' 除外）'
-            + (s.by === 'ai' ? '，由 AI 用 plan on 开启' : ''), 'warn');
+        pushLog('已进入计划模式（只展示与同步，不限制编辑）'
+            + (s.by === 'ai' ? '，由 AI 用 plan on 自主开启' : ''));
         planTouched();
         return s;
     }
@@ -9382,7 +9451,7 @@
         s.at = Date.now();
         s.by = by || 'user';
         savePlanState(s);
-        pushLog('已退出计划模式（写操作放行，计划转为执行中）');
+        pushLog('已退出计划模式（不再附带计划状态）');
         planTouched();
         return s;
     }
@@ -9432,7 +9501,8 @@
                 doing: it.status === 'doing',
                 symbol: PLAN_SYMBOLS[it.status],
                 label: PLAN_LABELS[it.status],
-                text: it.text
+                text: it.text,
+                meta: planMetaOf(it.text)        // 2.14.0：{ at, note? }，可能为 null
             });
         }
         return items;
@@ -9440,6 +9510,7 @@
 
     function planProgress() {
         const items = parsePlanItems(readPlanText());
+        try { prunePlanMeta(items); } catch (e) {}   // 2.14.0：条目被删/改名后清掉孤儿元数据
         return {
             items: items,
             total: items.length,
@@ -9477,8 +9548,35 @@
         lines.push(planFormatItem(status || 'todo', t));
         const w = planWriteLines(lines);
         if (!w || !w.ok) return { ok: false, error: (w && w.error) || '写入失败' };
+        notePlanItem(t, {});                       // 2.14.0：记下「这条什么时候建的」
         const p = planProgress();
         return { ok: true, index: p.total, text: t, status: status || 'todo' };
+    }
+
+    // 2.14.0 需求14/15：改条目**文字**（之前只能增删改状态，AI 改不了内容本身）
+    function planEditText(lineNo, newText) {
+        const t = String(newText == null ? '' : newText).trim();
+        if (!t) return { ok: false, error: '新内容为空' };
+        const lines = planFileLines();
+        const idx = lineNo - 1;
+        if (idx < 0 || idx >= lines.length) return { ok: false, error: '第 ' + lineNo + ' 行不存在' };
+        const it = parsePlanLine(lines[idx]);
+        if (!it) return { ok: false, error: '第 ' + lineNo + ' 行不是计划条目' };
+        lines[idx] = planFormatItem(it.status, t);
+        const w = planWriteLines(lines);
+        if (!w || !w.ok) return { ok: false, error: (w && w.error) || '写入失败' };
+        movePlanMeta(it.text, t);                   // 元数据跟着文字走，更新时间不丢
+        return { ok: true, line: lineNo, from: it.text, text: t, status: it.status };
+    }
+
+    // 2.14.0 需求10：备注（备注为空字符串 = 清掉备注）
+    function planSetNote(text, note) {
+        const t = String(text == null ? '' : text);
+        if (!t) return { ok: false, error: '条目内容为空' };
+        const n = String(note == null ? '' : note).trim();
+        notePlanItem(t, { note: n, keepAt: true });  // 写备注不算「内容改动」，at 不刷新
+        planTouched();
+        return { ok: true, text: t, note: n };
     }
 
     // 就地改一行的状态（保留其它行：注释、标题、自由文本都不动）
@@ -9491,6 +9589,7 @@
         lines[idx] = planFormatItem(status, it.text);
         const w = planWriteLines(lines);
         if (!w || !w.ok) return { ok: false, error: (w && w.error) || '写入失败' };
+        notePlanItem(it.text, {});                 // 2.14.0：状态变了就算「最近更新」
         return { ok: true, line: lineNo, status: status, text: it.text };
     }
 
@@ -9573,11 +9672,27 @@
         if (!p.total) return '';
         const cap = Math.max(1, Number(PLAN_INJECT_MAX_ITEMS) || 20);
         const lines = ['【当前计划】' + p.done + '/' + p.total + '（'
-            + PLAN_SYMBOLS.done + ' 完成 ' + PLAN_SYMBOLS.doing + ' 进行中 ' + PLAN_SYMBOLS.todo + ' 待完成）'];
+            + PLAN_SYMBOLS.done + ' 已完成 ' + PLAN_SYMBOLS.doing + ' 进行中 ' + PLAN_SYMBOLS.todo + ' 未完成）'];
         for (const it of p.items.slice(0, cap)) lines.push(PLAN_SYMBOLS[it.status] + ' ' + it.index + '. ' + it.text);
         if (p.total > cap) lines.push('… 还有 ' + (p.total - cap) + ' 条（read ' + SYS_PLAN_PATH + '）');
-        lines.push('（plan doing|done|todo <序号> 更新状态）');
+        lines.push('（plan doing|done|todo <序号> 更新状态；plan edit <序号> <新内容>；plan note <序号> <备注>）');
         return lines.join('\n');
+    }
+
+    // 2.14.0 需求17/18/19：**用户每发一条消息都附带最新计划状态**。
+    // 与 planOutboundText（搭在回执上）分开的第二条通道，因为 AI 看到的第一手是用户那条。
+    // 只在「计划模式开启 + 真的有条目 + 设置里没关」时附；已含该块就不重复贴。
+    function planUserAttachText(userText) {
+        const txt = String(userText == null ? '' : userText);
+        if (!txt.trim()) return '';
+        if (!isPlanModeActive()) return '';
+        if (txt.indexOf(PLAN_ATTACH_MARK) >= 0) return '';       // 已经带过了（用户复制粘贴重发）
+        let cfg = {};
+        try { cfg = getUiCfg() || {}; } catch (e) { cfg = {}; }
+        if (cfg.planInject === false) return '';                // 与出站搭车共用一个开关
+        const body = planOutboundText();
+        if (!body) return '';
+        return body;      // body 自己就以「【当前计划】」开头，不要再拼一次标记（会变成两行）
     }
 
     /* ------------------------- plan 命令 ------------------------- */
@@ -9591,11 +9706,11 @@
     // 会改计划的子命令：进幂等表（重发同一批 → SKIP，不会重复添加条目）
     function planIsMutating(cmd) {
         if (!cmd || cmd.op !== 'plan') return false;
-        return ['on', 'off', 'add', 'done', 'doing', 'todo', 'del', 'clear'].indexOf(planSub(cmd)) !== -1;
+        return ['on', 'off', 'add', 'edit', 'note', 'done', 'doing', 'todo', 'del', 'clear'].indexOf(planSub(cmd)) !== -1;
     }
 
-    // 计划模式的写操作白名单：唯一能写的就是计划文件本身，而且只放「内容写入」
-    // （删除/移动/复制这类结构操作仍拦截，免得计划文件在计划过程中被弄丢）
+    // 2.14.0：原「计划模式写操作白名单」已随权限闸门一起删除（计划模式不再限制任何写）。
+    // 保留这个判定只给内部区提示文案用：计划文件走 plan 命令维护更干净。
     function isPlanFileCmd(cmd, cwd) {
         if (!cmd) return false;
         if (['write', 'append', 'edit', 'patch'].indexOf(cmd.op) === -1) return false;
@@ -9608,7 +9723,8 @@
         try { return resolvePathArg(cmd.path || '', cwd || '/') === SYS_PLAN_PATH; } catch (err) { return false; }
     }
 
-    const PLAN_USAGE = 'plan on / plan off（仅用户）/ plan list / plan add <条目> / plan done|doing|todo <序号或文字> / plan del <序号或文字> / plan clear';
+    const PLAN_USAGE = 'plan on / plan off / plan list / plan add <条目> / plan edit <序号|last|文字> <新内容> / '
+        + 'plan note <序号|last|文字> <备注> / plan done|doing|todo <序号或文字> / plan del <序号或文字> / plan clear';
 
     function planResult(summary, extra) {
         // 只有「查看」类子命令才回显条目清单：plan add 连发 N 条时逐条回显全文会把回执撑爆
@@ -9642,15 +9758,14 @@
                 + (active ? ' · 计划模式已开启' : ''), { planAction: 'list' });
         }
         if (sub === 'on') {
-            if (active) return planResult('plan on → 计划模式本来就开着（写操作仍被拦截）', { planAction: 'on' });
+            if (active) return planResult('plan on → 计划模式本来就开着（只展示与同步，不限制编辑）', { planAction: 'on' });
             enterPlanMode('ai');
-            return planResult('plan on → 已进入计划模式：写操作被拦截，只有 ' + SYS_PLAN_PATH + ' 能写', { planAction: 'on' });
+            return planResult('plan on → 已进入计划模式：计划会展示给用户，并且每条消息自动附带最新状态（编辑权限不变）', { planAction: 'on' });
         }
         if (sub === 'off') {
-            if (!active) return planResult('plan off → 当前不在计划模式（写操作本来就放行）', { planAction: 'off' });
-            return planFail(cmd, '退出计划模式需要用户确认（AI 不能自己放开写操作闸门）', {
-                fix: '请用户点面板「计划」→ 退出计划；需要用户拍板就写 ■ 需要你确认：是否退出计划模式开始改文件'
-            });
+            if (!active) return planResult('plan off → 当前不在计划模式', { planAction: 'off' });
+            exitPlanMode('ai');
+            return planResult('plan off → 已退出计划模式（不再附带计划状态）', { planAction: 'off' });
         }
         if (sub === 'add') {
             if (!arg) return planFail(cmd, 'plan add 缺少条目文字', { fix: 'plan add 改造出站节奏器' });
@@ -9662,6 +9777,27 @@
             const r = planClear();
             if (!r.ok) return planFail(cmd, r.error);
             return planResult('plan clear → 已清空（当前 0 条）', { planAction: 'clear' });
+        }
+        // 2.14.0 需求14/15：AI 随时改条目内容 / 写备注。
+        // 参数拆法：第一个词是「定位」（序号 / last / 文字片段），剩下的全是新内容。
+        if (sub === 'edit' || sub === 'note') {
+            const m = /^\s*("[^"]+"|'[^']+'|\S+)\s*([\s\S]*)$/.exec(arg);
+            if (!m || !arg.trim()) return planFail(cmd, 'plan ' + sub + ' 缺少参数', {
+                fix: sub === 'edit' ? 'plan edit 2 新的条目内容 · plan edit last 收尾总结' : 'plan note 2 已确认接口 · plan note last 等待用户回复'
+            });
+            const f = planFindItem(m[1]);
+            if (f.error) return planFail(cmd, f.error);
+            const it = f.item;
+            const rest = m[2].trim();
+            if (sub === 'edit') {
+                if (!rest) return planFail(cmd, 'plan edit 缺少新内容', { fix: 'plan edit ' + it.index + ' 新的条目内容' });
+                const r = planEditText(it.lineNo, rest);
+                if (!r.ok) return planFail(cmd, r.error);
+                return planResult('plan edit → 第 ' + it.index + ' 条已改为「' + r.text + '」', { planAction: 'edit' });
+            }
+            const r = planSetNote(it.text, rest);   // rest 为空 = 清掉备注
+            if (!r.ok) return planFail(cmd, r.error);
+            return planResult('plan note → 第 ' + it.index + ' 条' + (r.note ? '备注：「' + r.note + '」' : '已清空备注'), { planAction: 'note' });
         }
         if (['done', 'doing', 'todo', 'del'].indexOf(sub) >= 0) {
             if (!arg) return planFail(cmd, 'plan ' + sub + ' 缺少序号或文字片段', { fix: 'plan ' + sub + ' 2 · plan ' + sub + ' last（最后一条）· plan ' + sub + ' 改造出站' });
@@ -10935,14 +11071,8 @@
             return true;
         }
 
-        function planDenied(c) {
-            return {
-                ok: false, op: c.op, path: c.path, kind: 'denied', deniedBy: 'plan',
-                error: '计划模式：写操作已拦截',
-                fix: '退出计划模式后重发（面板「计划」→ 退出；只有 ' + SYS_PLAN_PATH + ' 例外）',
-                denyHint: '计划模式只读：计划文件仍可写（plan add/done/doing/todo），其它文件等用户确认退出后再改'
-            };
-        }
+        /* 2.14.0：原 planDenied（计划模式拦写）整块删除 —— 计划模式不再是权限闸门。
+           policyDeny 现在只管内部区只读；计划模式开启时 AI 的写权限与普通模式完全一致。 */
 
         function internalDenied(c, cwd) {
             const hitPath = commandPathsOf(c, cwd).filter(function (x) { return VirtualFS.isInternal(x); });
@@ -10954,28 +11084,24 @@
                     ? '计划文件不要用 write / edit / patch 直接改：用 plan 命令'
                     : '系统区 / 回收站对 AI 只读：' + p,
                 fix: isPlan
-                    ? 'plan add <条目> 加一条；plan done|doing|todo <序号|last|文字片段> 改状态；plan del / clear。要整篇重写就先 plan on。'
+                    ? 'plan add <条目> 加一条；plan edit <序号|last|文字> <新内容> 改文字；plan note <…> <备注> 写备注；'
+                    + 'plan done|doing|todo <序号|last|文字片段> 改状态；plan del / clear。'
                     + '（同批里先 plan add 再 plan done last，不必等序号）'
                     : '系统文件（含 ' + SYS_MANUAL_PATH + '）只有人能在面板里改；要查规范用 `help §N` 或 read ' + SYS_MANUAL_PATH
                     + '；要留档请写用户目录，例如 write /notes.md',
                 denyHint: '内部区（' + SYS_PREFIX + '* 与 ' + TRASH_PREFIX + '*）对 AI 只读：可以 read / grep / list / tree / stat，'
-                    + '不能写 / 删 / 移 / 建；' + SYS_PLAN_PATH + ' 是唯一例外，而且只在计划模式开启时能用 write/edit/patch'
+                    + '不能写 / 删 / 移 / 建；计划请用 plan 命令维护（它写的就是 ' + SYS_PLAN_PATH + '，但走专用通道）'
             };
         }
 
-        // 逐条策略闸门（计划模式 / 内部区只读）。关键：**按命令逐条判、按顺序判** ——
-        //   · 越权的那一条只拒它自己，同批合法命令照常执行（不是整批中止；要整批回滚用 atomic）；
-        //   · `plan on` 与本批后面的命令同批时，后面的写命令当场就被拦住（不留一个批次的空窗期）；
-        //   · restore list 属读，计划模式下也放行。
+        // 逐条策略闸门（现在只剩内部区只读）。关键：**按命令逐条判** ——
+        //   · 越权的那一条只拒它自己，同批合法命令照常执行（不是整批中止；要整批回滚用 atomic）。
         function policyDeny(cmd, cwd) {
             if (!isMutatingOp(cmd)) return null;
-            // 15：闸门顺序 = dry 域放行 → 危险命令（在 executeBatch 里先判）→ 计划模式 → 内部区只读。
-            // dry 域只是「校验一遍」，不会写盘 —— 计划模式拦它没有意义（AI 连「这样写能不能过」都试不了）。
-            // 但**内部区只读是权限**、不是写副作用，dry 也照样拦。
-            const cmdDry = dry || !!(cmd && cmd.domain && cmd.domain.dry);
-            const planActive = isPlanModeActive();
-            if (planActive && isPlanFileCmd(cmd, cwd)) return null;        // 唯一例外：计划文件本身
-            if (planActive && !cmdDry) return planDenied(cmd);
+            // 15：闸门顺序 = 危险命令（在 executeBatch 里先判）→ 内部区只读。
+            // 2.14.0：原来的「计划模式拦一切写」这一层已经删掉 —— 计划模式只负责**展示与上下文同步**，
+            // 不再是权限。开着计划模式时 AI 想改什么就改什么，和普通模式一模一样。
+            // 但**内部区只读是权限**、不是计划模式，dry 域也照样拦。
             // restore / undo / redo 不带路径（走恢复通道与撤销栈），不套「内部区路径」判定
             if (cmd.op === 'restore' || cmd.op === 'undo' || cmd.op === 'redo') return null;
             return commandPathsOf(cmd, cwd).some(function (p) { return VirtualFS.isInternal(p); })
@@ -11047,7 +11173,7 @@
             }
             if (r.action === 'unclosed') { setStatus('received', '执行域未闭合'); }
             else if (r.action === 'legacy') { setStatus('received', '旧协议标记，未执行'); }
-            else if (r.action === 'denied') { setStatus('received', r.denyKind === 'plan' ? '计划模式拦截' : '越权已拒绝'); }
+            else if (r.action === 'denied') { setStatus('received', '越权已拒绝'); }
             else if (r.action === 'empty') { setStatus('received', '空执行域'); }
             else {
                 const results = r.batch.results;
@@ -12817,20 +12943,43 @@
         '.ibtn.on{background:var(--sf);color:var(--ac)}',
 
         /* 计划条 */
-        '.planbar{flex:none;border-bottom:1px solid var(--ln);background:var(--sf)}',
+        /* 2.14.0 计划条改为「吸附在输入框上方」的浮层（不再是面板头下面那一条）。
+         * 要点：
+         *   · 容器 pointer-events:none —— 折叠时右半边是空的，必须把点击透给宿主页面的「向下滚动」按钮；
+         *   · 真正吃点击的只有 .pin 内部（.pin 默认占左半宽 = 50%，展开时 100%）；
+         *   · --pb 是「离视口底部多远」，由 updatePlanDock() 按宿主输入框的位置实时算出。 */
+        '.planbar{position:fixed;left:0;right:0;bottom:0;z-index:5;pointer-events:none;',
+        'padding-bottom:var(--pb,8px);padding-bottom:calc(var(--pb,8px) + env(safe-area-inset-bottom));',
+        'display:flex;justify-content:center}',
+        '.planbar .pin{pointer-events:auto;width:50%;max-width:100%;box-sizing:border-box;',
+        'border:1px solid var(--ln);border-bottom:none;border-radius:12px 12px 0 0;background:var(--sf);',
+        'box-shadow:0 -4px 18px rgba(0,0,0,.16);overflow:hidden;',
+        'transition:width .22s cubic-bezier(.2,.8,.2,1)}',
+        '.planbar.open .pin{width:100%}',
         '.psum{display:flex;align-items:center;gap:8px;padding:8px 12px;min-height:44px;cursor:pointer}',
+        '.pexp{flex:none;font-family:var(--mono);font-size:10px;color:var(--dim)}',
         '.bdg{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;border:1px solid currentColor;color:var(--ac);flex:none}',
         '.ptxt{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.pct{font-family:var(--mono);font-size:11px;color:var(--dim)}',
         '.pbar{height:3px;background:var(--ln)}',
         '.pbar i{display:block;height:100%;background:var(--ac);transition:width .25s}',
         '.pitems{padding:2px 6px 8px}',
-        '.pitem{display:flex;align-items:center;gap:6px;min-height:44px}',
+        '.pitem{display:flex;align-items:flex-start;gap:6px;min-height:44px;padding:6px 4px}',
         '.pstat{width:44px;height:44px;border-radius:8px;font-size:15px;color:var(--dim);flex:none}',
         '.pstat.run{color:var(--ac)}.pstat.done{color:var(--ok)}',
         '.pstat:hover{background:var(--bg)}',
-        '.ptxt2{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-        '.pitem.done .ptxt2{color:var(--dim);text-decoration:line-through}',
+        '.pmain{flex:1;min-width:0}',
+        '.ptxt2{font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative}',
+        /* 2.14.0 需求13：划线**只在「已完成」时**做，而且是一次性的划线动画。
+         * 不再用 text-decoration:line-through —— 那是静态的，每次重渲染都在，
+         * 看不出「刚刚完成」这件事。这里用一条自左向右扫过去的线（scaleX 0→1）。 */
+        '.pmeta{display:block;font-family:var(--mono);font-size:10.5px;color:var(--dim);',
+        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
+        '.pitem.done .ptxt2{color:var(--dim)}',
+        '.pitem.done .ptxt2::after{content:"";position:absolute;left:0;right:0;top:50%;height:1.5px;',
+        'background:var(--dim);border-radius:2px;transform:scaleX(0);transform-origin:left center}',
+        '.pitem.done.fx .ptxt2::after{animation:pstrike .42s cubic-bezier(.2,.8,.2,1) forwards}',
+        '@keyframes pstrike{from{transform:scaleX(0)}to{transform:scaleX(1)}}',
         '.pempty{font-size:12px;color:var(--dim);padding:8px 10px;font-family:var(--mono)}',
         '.pfoot{display:flex;gap:6px;padding:6px 4px 2px}',
 
@@ -12932,6 +13081,15 @@
         '.set.col .lb{display:block}',
         '.set .sub{display:block;font-size:11px;color:var(--dim);font-family:var(--mono);margin-top:4px;line-height:1.6}',
         '.set .mn{font-family:var(--mono);color:var(--ac);font-weight:600}',
+        /* 2.13.6 存储介质操作中的加载条：紧跟在「设置」按钮之后、「完成」之前。
+         * 搬家/授权可能要几百毫秒到几秒，没有它用户会以为按钮没生效而连点。 */
+        '.medbusy{display:flex;align-items:center;gap:9px;margin:8px 0 0;padding:9px 11px;',
+        'background:var(--sf);border:1px solid var(--ln);border-radius:12px}',
+        '.medbusy .lb{flex:1;min-width:0;font-size:12.5px;color:var(--dim);overflow-wrap:anywhere}',
+        '.spin{width:15px;height:15px;flex:none;border-radius:50%;',
+        'border:2px solid var(--ln);border-top-color:var(--ac);animation:dswspin .7s linear infinite}',
+        /* 降低动效偏好下动画被全局关掉，靠「缺口圆环」本身仍然读得出是在转 */
+        '@keyframes dswspin{from{transform:rotate(0)}to{transform:rotate(360deg)}}',
         '.sw{width:46px;height:28px;border-radius:14px;background:var(--ln);position:relative;flex:none;transition:background .18s}',
         '.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;',
         'background:var(--bg);transition:transform .18s;box-shadow:0 1px 3px rgba(0,0,0,.3)}',
@@ -13090,7 +13248,9 @@
         /* 导入进度（19-importexport 的 updateImportProg 直接查这个类名） */
         '.dsw2-importprog{margin:0 2px 8px;font-size:12px;color:var(--dim);font-family:var(--mono);font-variant-numeric:tabular-nums}',
 
-        '@media (prefers-reduced-motion:reduce){.dsw2-root *{transition:none !important;animation:none !important}}'
+        /* 降低动效偏好：不扫线了，但已完成**仍然要有删除线**（不然就看不出完成了） */
+        '@media (prefers-reduced-motion:reduce){.dsw2-root *{transition:none !important;animation:none !important}',
+        '.dsw2-root .pitem.done .ptxt2{text-decoration:line-through}}'
     ].join('');
 
 /* >>> 18-ui.js */
@@ -13652,11 +13812,15 @@
         panel.innerHTML =
             '<div class="ph"></div>' +
             '<div class="pm-scrim"></div>' +
-            '<div class="planbar" style="display:none"></div>' +
             '<div class="pbody"></div>';
         root.appendChild(panel);
         uiPanel = panel;
-        uiPlanBar = panel.querySelector('.planbar');
+        // 2.14.0 需求7：计划条挂到 root 上、**不挂在 panel 里**。
+        // 原因：.panel 带 transform，而 transform 会成为 fixed 定位的**包含块** ——
+        // 放在里面的话 position:fixed 会相对面板定位，面板收起时计划条跟着跑掉。
+        uiPlanBar = el('div', 'planbar');
+        uiPlanBar.style.display = 'none';
+        root.appendChild(uiPlanBar);
         uiPmScrim = panel.querySelector('.pm-scrim');
         if (uiPmScrim) uiPmScrim.addEventListener('click', function () { closeMenu(); });
 
@@ -13681,10 +13845,16 @@
         window.addEventListener('resize', function () {
             applyBallPosition();
             placeHint();
+            updatePlanDock();      // 2.14.0：输入框位置变了要重新贴合
         });
 
         applyTheme();
         render();
+        // 2.13.6 硬保证：首屏**绝不自动展开工作区，也绝不自动弹引导层**。
+        // 顺序永远是「用户点悬浮球 → togglePanel 打开面板 → 面板打开后才弹引导层」。
+        // 之前只有注释说明、没有强制动作，这里显式关一次，万一将来有人在 createUI 里
+        // 加了「顺手开一下」的代码也不会静悄悄把用户正在看的对话糊住。
+        closePanel();
         // 2.13.3：引导层**不自动弹**。只在用户主动点开工作区时弹（见 togglePanel）——
         // 聊天页一加载就掉下来一层遮罩会挡住正在看的内容，而且用户还没开始用，
         // 那时的选择多半不是他真想要的。改成球旁一句持久提示，点了工作区才问。
@@ -13714,7 +13884,64 @@
     function markBallHint() { setStatus('idle', ONBOARD_HINT, {}); }
     function clearBallHint() {
         if (uiState.statusText === ONBOARD_HINT) setStatus('idle', '等待第一条命令', { autoHide: 6000 });
-    }/* 三个存放位置：**一行一个按钮 + 一句当前选项的解释**，
+    }
+
+    /* ------------------------- 2.13.6 存储介质操作：忙状态 + 加载动画 -------------------------
+     * 切介质 / 绑定 / 授权 / 解绑 都要**搬内容**，几百毫秒到几秒不等。原来这四件事各抄了一份
+     * 「置忙 → 干活 → 两条出口」的代码，于是有三个真问题：
+     *   1) 引导层里点 gm/opfs 那条路**根本没上锁** —— 连点两下就是两次并发搬家，内容会分裂；
+     *   2) showDirectoryPicker 之类若同步抛错，busy 标志永远清不掉，之后所有按钮永久失效；
+     *   3) 干活的几十秒里界面毫无变化，用户以为按钮没生效。
+     * 现在统一从 runMediaOp 走：忙状态只有一份、两处界面（引导层 + 设置页）各画一个旋转加载条，
+     * 忙的时候把会改介质的按钮置灰，成功与失败都从同一个出口收尾。 */
+    let mediaBusy = false;         // 是否有「改介质」的操作在跑
+    let mediaBusyText = '';        // 忙时的提示语（决定加载条上写什么）
+
+    function errText(e) { return (e && e.message) ? String(e.message) : String(e == null ? '未知错误' : e); }
+
+    function setMediaBusy(on, text) {
+        mediaBusy = !!on;
+        mediaBusyText = on ? String(text || '正在处理…') : '';
+        renderMediaViews();
+    }
+    /* 两处界面都得跟着变：设置页可能在开，引导层也可能叠在上面 */
+    function renderMediaViews() {
+        try { if (uiPanel && uiPanel.classList.contains('on')) render(); } catch (e) {}
+        try { refreshOnboard(); } catch (e) {}
+    }
+    /* 加载条本体：引导层与设置页共用同一段 HTML，两个地方都放在「设置」按钮之后。 */
+    function mediaBusyHTML() {
+        if (!mediaBusy) return '';
+        return '<div class="set medbusy" role="status" aria-live="polite">' +
+            '<i class="spin" aria-hidden="true"></i>' +
+            '<span class="lb">' + esc(mediaBusyText) + '</span></div>';
+    }
+    /* 统一的「改介质」入口。task 必须返回 Promise；onOk / onErr 只负责出提示与落配置。 */
+    function runMediaOp(label, task, onOk, onErr) {
+        if (mediaBusy) { showToast('正在处理，请稍候'); return false; }
+        setMediaBusy(true, label);
+        const finish = function (r, isErr) {
+            mediaBusy = false;
+            mediaBusyText = '';
+            try { refreshFolderName(); } catch (e) {}
+            try {
+                if (isErr) {
+                    showToast(errText(r), 'err');
+                    pushLog('存储操作失败（' + label + '）：' + errText(r), 'error');
+                    if (onErr) onErr(r);
+                } else if (onOk) onOk(r);
+            } catch (e) { errlog('media op handler threw:', e); }
+            renderMediaViews();
+        };
+        let p;
+        try { p = task(); }                       // 同步抛错也要走同一个出口，否则 busy 清不掉
+        catch (e) { finish(e, true); return false; }
+        Promise.resolve(p).then(function (r) { finish(r, false); },
+            function (e) { finish(e, true); });
+        return true;
+    }
+
+    /* 三个存放位置：**一行一个按钮 + 一句当前选项的解释**，
      * 不再是三段描述文字（手机上三段字会把面板擑得老长，还抓不到重点）。 */
     function onboardMediaCards() {
         const cur = onboardMedia();
@@ -13733,7 +13960,8 @@
         ];
         let h = '<div class="ob-pick">';
         for (const o of opts) {
-            const dis = (o.k === 'fsa' && !sup);
+            // 忙的时候置灰：否则连点就是两次并发搬家（内容会分裂）
+            const dis = (o.k === 'fsa' && !sup) || mediaBusy;
             h += '<button type="button" class="' + (cur === o.k ? 'on' : '') + '" data-om="' + o.k + '"'
                 + (dis ? ' disabled' : '') + '>'
                 + (o.badge ? '<i class="ob-dot"></i>' : '')
@@ -13747,11 +13975,15 @@
             + (cur === 'gm' ? '当前 ' + safeNum(st.blobs) + ' 块内容。' : '')
             + '</p>';
         if (sup) {
-            h += '<div class="set btns"><button class="btn sm" data-a="bindFolder">'
+            h += '<div class="set btns"><button class="btn sm" data-a="bindFolder"'
+                + (mediaBusy ? ' disabled' : '') + '>'
                 + (bound ? '重新选文件夹…' : '选择文件夹…') + '</button>'
-                + (bound ? '<button class="btn sm dgr" data-a="unbindFolder">解绑</button>' : '')
+                + (bound ? '<button class="btn sm dgr" data-a="unbindFolder"'
+                    + (mediaBusy ? ' disabled' : '') + '>解绑</button>' : '')
                 + '</div>';
         }
+        // 设置之后、完成之前：正在搬家就把旋转动画挂出来
+        h += mediaBusyHTML();
         return h;
     }
 
@@ -13773,7 +14005,7 @@
             obSw('notifyVibrate', '震动提醒', 'AI 回完长消息时震一下', c.notifyVibrate !== false) +
             obSw('notifySound', '提示音', '同上，声音版', c.notifySound !== false) +
             obSw('terminateAutoPause', '说完自动停', '识别到 ■ 就暂停，省电', c.terminateAutoPause !== false) +
-            obSw('planMode', '计划模式', '只允许写计划文件', !!pm);
+            obSw('planMode', '计划模式', '计划显示 + 自动同步', !!pm);
     }
 
     function onboardHTML() {
@@ -13862,18 +14094,15 @@
         const om = t.closest('[data-om]');
         if (om) {
             const k = om.getAttribute('data-om');
-            if (k === 'fsa') { handleAction('bindFolder'); return; }
-            try {
-                FsMedia.useMedium(k).then(function (r) {
+            if (k === 'fsa') { handleAction('bindFolder'); return true; }
+            // 2.13.6：这条路径以前完全没上锁，连点两下就是两次并发搬家 → 统一走 runMediaOp
+            const nm = (k === 'opfs') ? '浏览器沙盒' : '油猴存储';
+            runMediaOp('正在搬到' + nm + '…', function () { return FsMedia.useMedium(k); },
+                function (r) {
                     saveUiCfg({ fsMedia: k });
-                    showToast('已切到' + (k === 'opfs' ? '浏览器沙盒' : '油猴存储') + '，搬入 ' + safeNum(r.moved) + ' 块内容');
-                    pushLog('容器存放位置 → ' + (k === 'opfs' ? '浏览器沙盒' : '油猴存储') + '（搬入 ' + safeNum(r.moved) + ' 块）');
-                    refreshOnboard();
-                }, function (e) {
-                    showToast('切换失败：' + ((e && e.message) || e), 'err');
-                    refreshOnboard();
+                    showToast('已切到' + nm + '，搬入 ' + safeNum(r.moved) + ' 块内容');
+                    pushLog('容器存放位置 → ' + nm + '（搬入 ' + safeNum(r.moved) + ' 块）');
                 });
-            } catch (e) { showToast('切换失败：' + ((e && e.message) || e), 'err'); }
             return true;
         }
         const oth = t.closest('[data-oth]');
@@ -13883,8 +14112,7 @@
         const otog = t.closest('[data-otog]');
         if (otog) {
             const key = otog.getAttribute('data-otog');
-            toggleCfg(key);
-            if (key === 'autoSend' || key === 'rateLimit' || key === 'autoBootstrap') applyCfgSideEffects(key);
+            toggleCfg(key);          // toggleCfg 自己已经把配置推到运行时了
             refreshOnboard();
             return true;
         }
@@ -13906,28 +14134,13 @@
         }
         const a = t.closest('[data-a]');
         if (a) {
-            const act = a.getAttribute('data-a');
-            // 这两个会改到引导层自己显示的状态（绑定/解绑）→ 完事后重画引导
-            if (act === 'bindFolder' || act === 'unbindFolder' || act === 'grantFolder') {
-                // 绑定/解绑内部会调 refreshFolderName()，那边会把引导层重画 —— 不用自己排定时器
-                handleAction(act, a);
-                return true;
-            }
-            handleAction(act, a);
+            // 绑定/授权/解绑的收尾由 runMediaOp 统一重画引导层（setMediaBusy 会刷两处界面），
+            // 所以这里不再另外排定时器，也不再区分是哪一类动作。
+            handleAction(a.getAttribute('data-a'), a);
             return true;
         }
         return true;   // 引导层内部的其它点击一律吃掉，不往下传
     }
-    /* 引导层里的开关也要把配置推到运行时（toggleCfg 本身已经做大部分，这里补齐
-     * 引导里可能新增的 key，避免两处逻辑漂移）。 */
-    function applyCfgSideEffects(key) {
-        const cfg = getUiCfg();
-        try {
-            if (key === 'rateLimit') CONFIG.RATE_LIMIT_ENABLED = cfg.rateLimit !== false;
-            else if (key === 'autoBootstrap') CONFIG.AUTO_BOOTSTRAP = cfg.autoBootstrap !== false;
-        } catch (e) {}
-    }
-
     /* ------------------------- 悬浮球：位置与手势 ------------------------- */
     function loadBallPos() {
         let bp = Store.get(STORE_BALL_POS, null);
@@ -14109,7 +14322,12 @@
             if (uiBall) uiBall.classList.remove('has-log');
             render();
             // 首次运行：用户主动点开工作区了，这时弹引导层才不打扰（面板已就绪、状态是准的）
-            if (!onboardSeen()) setTimeout(function () { try { showOnboarding(false); } catch (e) {} }, 120);
+            // 2.13.6：延迟 120ms 是为了让面板的位移动画先跑起来；但要是用户在这 120ms 里
+            // 又点了一下球把面板收了，那就不该再弹引导层（不然会盖在一个已经收起的面板上）。
+            if (!onboardSeen()) setTimeout(function () {
+                if (!uiPanel || !uiPanel.classList.contains('on')) return;
+                try { showOnboarding(false); } catch (e) {}
+            }, 120);
             else clearBallHint();
         } else {
             closeMenu();
@@ -14271,28 +14489,41 @@
         if (!s.active && !(s.approved && p.total)) { uiPlanBar.style.display = 'none'; uiPlanBar.innerHTML = ''; return; }
         const total = p.total || 0, done = p.done || 0;
         const pct = total ? Math.round(done / total * 100) : 0;
-        const badge = s.active ? '规划中' : '执行中';
+        const badge = s.active ? '计划中' : '已结束';
         let cur = '';
         for (const it of p.items) { if (it.status === 'doing') { cur = it.text; break; } }
         if (!cur) for (const it of p.items) { if (it.status === 'todo') { cur = it.text; break; } }
         if (!cur) cur = total ? '全部完成' : '—';
-        let h = '<div class="psum" data-a="togglePlan">' +
+        const open = !!uiState.planOpen;
+        let h = '<div class="pin"><div class="psum" data-a="togglePlan">' +
             '<span class="bdg">' + badge + '</span>' +
             '<span class="ptxt">计划 ' + (total ? done + '/' + total : '（空）') + ' · ' + esc(cur) + '</span>' +
+            '<span class="pexp">' + (open ? '▾' : '▸') + '</span>' +
             '<span class="pct">' + pct + '%</span></div>' +
             '<div class="pbar"><i style="width:' + pct + '%"></i></div>';
-        if (uiState.planOpen) {
+        if (open) {
             h += '<div class="pitems">';
             if (!total) {
                 h += '<div class="pempty">计划还是空的：让 AI 用 plan add &lt;条目&gt; 写入</div>';
             } else {
                 for (let i = 0; i < p.items.length; i++) {
                     const it = p.items[i];
-                    const sym = it.status === 'done' ? PLAN_SYMBOLS.done : (it.status === 'doing' ? PLAN_SYMBOLS.doing : PLAN_SYMBOLS.todo);
                     const cls = it.status === 'doing' ? 'run' : (it.status === 'done' ? 'done' : '');
-                    h += '<div class="pitem ' + it.status + '">' +
-                        '<button class="pstat ' + cls + '" data-a="cyc" data-i="' + it.lineNo + '" aria-label="切换状态">' + sym + '</button>' +
-                        '<span class="ptxt2">' + esc(it.index + '. ' + it.text) + '</span></div>';
+                    // 2.14.0 需求13：只在「**刚刚变成**已完成」的那一次给 .fx 播划线动画。
+                    // 首次渲染先把已知状态灌进 seen（否则打开面板时旧条目会集体划一遍）。
+                    let fx = '';
+                    if (it.status === 'done') {
+                        const key = it.lineNo + '|' + it.text;
+                        if (planFxPrimed) {
+                            if (!planSeenDone.has(key)) planArmFx(key);   // todo → done：这一次要划
+                            if (planFxDue.has(key)) fx = ' fx';            // 同一次改动的重复重画也得保留
+                        }
+                        planSeenDone.add(key);
+                    }
+                    h += '<div class="pitem ' + it.status + fx + '">' +
+                        '<button class="pstat ' + cls + '" data-a="cyc" data-i="' + it.lineNo + '" aria-label="切换状态">' + it.symbol + '</button>' +
+                        '<span class="pmain"><span class="ptxt2">' + esc(it.index + '. ' + it.text) + '</span>' +
+                        planMetaLine(it) + '</span></div>';
                 }
             }
             h += '<div class="pfoot">' +
@@ -14300,9 +14531,56 @@
                 '<button class="btn sm" data-a="planState">' + (s.active ? '退出计划' : '重新进入计划') + '</button>' +
                 '</div></div>';
         }
+        h += '</div>';
         uiPlanBar.innerHTML = h;
         uiPlanBar.style.display = 'block';
+        uiPlanBar.classList.toggle('open', open);
+        planFxPrimed = true;
+        updatePlanDock();
     }
+
+    // 条目下方那一小行：更新时间 + 备注（需求10）
+    function planMetaLine(it) {
+        const m = it.meta;
+        if (!m || (!m.at && !m.note)) return '';
+        const bits = [];
+        if (m.at) bits.push(fmtPlanWhen(m.at));
+        if (m.note) bits.push(m.note);
+        if (!bits.length) return '';
+        return '<span class="pmeta">' + esc(bits.join(' · ')) + '</span>';
+    }
+
+    // 2.14.0 需求7：计划条吸附在**宿主输入框**上方。
+    // 找不到输入框（页面还在加载、或平台把输入框换掉了）就退到一个保守的默认高度。
+    function updatePlanDock() {
+        if (!uiPlanBar) return;
+        let offset = 0;
+        try {
+            const c = findComposer();
+            if (c) {
+                const r = c.getBoundingClientRect();
+                const vh = window.innerHeight || 0;
+                if (r && r.height > 0 && vh && r.top < vh) offset = Math.max(0, Math.min(vh * 0.6, vh - r.top));
+            }
+        } catch (e) {}
+        uiPlanBar.style.setProperty('--pb', (offset + 8) + 'px');
+    }
+    // 2.14.0：划线动画只给「状态刚刚变成已完成」的那一条，而且要活过一帧。
+    // 为什么不用「seen 集合」：planTouched() 一次改动会连着 renderPlanBar() + refreshUI()（里面又 render()），
+    // 也就是**同一次改动会重画两遍**。单纯用「已见过就不再画」的话，第二遍会把 .fx 抹掉，
+    // 动画一帧都来不及画就没了。所以改成：转换发生时把 key 放进 planFxDue，
+    // 并在一个短窗口（FX_MS）后再移除 —— 同一次改动的所有重画都仍然带 .fx，动画看得见；
+    // 之后用户再交互重画时它已过期，就不会反复划。
+    const PLAN_FX_MS = 1200;
+    const planSeenDone = new Set();
+    const planFxDue = new Set();
+    let planFxPrimed = false;
+    function planArmFx(key) {
+        if (planFxDue.has(key)) return;
+        planFxDue.add(key);
+        setTimeout(function () { planFxDue.delete(key); }, PLAN_FX_MS);
+    }
+
     // 兼容旧钩子名：运行时与 DSW.ui.renderPlanBar 都按这个名字调用
     function renderPlanBar() { renderPlan(); }
 
@@ -14936,9 +15214,9 @@
     function planModeHintText() {
         const s = getPlanState();
         const p = planProgress();
-        if (s.active) return '规划中：AI 只能写计划文件，写别的会被拦下并要你确认';
-        if (s.approved && p.total) return '执行中：' + p.done + '/' + p.total + ' 完成';
-        return '未开启：AI 可自由写文件';
+        if (s.active) return '已开启：计划显示在输入框上方，每条消息自动附带状态；AI 的编辑权限不变';
+        if (s.approved && p.total) return '已结束：' + p.done + '/' + p.total + ' 完成';
+        return '未开启：AI 也能自己用 plan on 开启';
     }
     /* ------------------------- 手风琴折叠面板 ------------------------- */
     /* 设置 / 关于原先是一长串 .grp 卡片，太长；现在每个分组只露标题，
@@ -14958,12 +15236,14 @@
      * 渲染必须是同步的，而「有没有绑定文件夹」是异步查的，所以在内存里缓存一份名字，
      * 绑定/解绑/启动后刷新它。 */
     let folderHandleName = [];
-    let folderBusy = false;
+    /* 2.13.6：忙标志统一搬到 runMediaOp 那边（引导层与设置页共用一份），
+     * 原来这里的 folderBusy 只看得到设置页那几个按钮，引导层的切换点不到。 */
     function refreshFolderName() {
         try {
             FsMedia.handleName().then(function (n) {
                 folderHandleName = n || [];
-                try { render(); } catch (e) {}
+                // 面板没开时不重建整棵 DOM（文件多时重建很贵）；下次打开面板时 render() 会补上
+                try { if (uiPanel && uiPanel.classList.contains('on')) render(); } catch (e) {}
                 // 引导层开着时，存储位置那一栏也得跟着变（绑定/解绑是异步的）
                 try { refreshOnboard(); } catch (e) {}
             }, function () {});
@@ -15001,7 +15281,6 @@
         if (fm.media === 'fsa' || FsMedia.blocked()) return nm || '文件夹';
         return fm.media === 'opfs' ? '浏览器沙盒' : '油猴储存';
     }
-    function setFolderNameForTest(n) { folderHandleName = n || []; }
 
     function folderSummaryText() {
         const fm = FsMedia.status();
@@ -15052,16 +15331,19 @@
             h += '<div class="set col"><span class="lb">这台浏览器不支持选择文件夹<span class="sub">' +
                 '（没有 showDirectoryPicker）—— 只能继续用油猴存储。</span></span></div>';
             return h;
-        }
-
+        }        // 2.13.6：忙的时候把「会改介质」的按钮置灰，刷新状态这种只读动作仍可用
+        const md = mediaBusy ? ' disabled' : '';
         h += '<div class="set btns">';
-        h += '<button class="btn sm' + (blk ? ' pri' : '') + '" data-a="bindFolder">' +
-            (bound ? '重新选文件夹…' : '绑定文件夹…') + '</button>';
-        if (bound) h += '<button class="btn sm' + (blk ? ' pri' : '') + '" data-a="grantFolder">立即授权</button>';
+        h += '<button class="btn sm' + (blk ? ' pri' : '') + '" data-a="bindFolder"' + md + '>'
+            + (bound ? '重新选文件夹…' : '绑定文件夹…') + '</button>';
+        if (bound) h += '<button class="btn sm' + (blk ? ' pri' : '') + '" data-a="grantFolder"' + md + '>立即授权</button>';
         if (bound) h += '<button class="btn sm" data-a="autoGrantToggle">自动续授权：' + (ag.enabled ? '开' : '关') + '</button>';
-        if (isFsa && !blk) h += '<button class="btn sm dgr" data-a="unbindFolder">解绑（搬回油猴存储）</button>';
+        if (isFsa && !blk) h += '<button class="btn sm dgr" data-a="unbindFolder"' + md + '>解绑（搬回油猴存储）</button>';
         h += '<button class="btn sm" data-a="folderRefresh">刷新状态</button>';
         h += '</div>';
+        // 设置之后、完成之前：正在搬家就把旋转动画挂出来
+        h += mediaBusyHTML();
+
 
         if (bound) {
             h += '<div class="set col"><span class="lb">自动续授权<span class="sub">' +
@@ -15136,10 +15418,10 @@
 
         /* 计划 */
         h += accItem('set.plan', '计划',
-            swRow('planMode', '进入计划模式', planModeHintText(), !!planNow.active) +
-            swRow('planInject', '每轮附带计划进度', '计划与每条状态并进当轮回执（同一条消息）', cfg.planInject !== false) +
+            swRow('planMode', '计划模式', planModeHintText(), !!planNow.active) +
+            swRow('planInject', '自动同步计划状态', '用户每发一条消息 + 容器每条回执，都附带最新计划', cfg.planInject !== false) +
             '<div class="set col"><span class="lb">计划文件长什么样？<span class="sub">计划存在 ' + esc(SYS_PLAN_PATH) +
-            '，一条一行：' + PLAN_SYMBOLS.todo + ' 待完成 / ' + PLAN_SYMBOLS.doing + ' 进行中 / ' + PLAN_SYMBOLS.done + ' 完成。' +
+            '，一条一行：' + PLAN_SYMBOLS.todo + ' 未完成 / ' + PLAN_SYMBOLS.doing + ' 进行中 / ' + PLAN_SYMBOLS.done + ' 已完成。' +
             (planPr.total ? '\n' + esc(planListText(CONFIG.PLAN_RECEIPT_MAX_ITEMS).join('\n')) : '') + '</span></span></div>' +
             '<div class="set btns"><button class="btn sm" data-a="newPlan">新建计划文件</button>' +
             '<button class="btn sm" data-a="copyPlan">复制计划</button>' +
@@ -15583,7 +15865,7 @@
         return {
             autoSend: '自动回传', rateLimit: '节奏器等待', autoBootstrap: '新对话注入',
             injectManual: '注入手册全文', notifyVibrate: '震动', notifySound: '提示音',
-            terminateAutoPause: '终止符后自动暂停', planMode: '计划模式', planInject: '每轮附带计划进度'
+            terminateAutoPause: '终止符后自动暂停', planMode: '计划模式', planInject: '自动同步计划状态'
         }[key] || key;
     }
 
@@ -15628,59 +15910,33 @@
                 break;
             case 'clear': clearContainer(); break;
             /* P3b-2：容器存放位置。绑定/授权必须在**用户点击的调用栈里**直接调用
-             * showDirectoryPicker / requestPermission —— 浏览器硬性要求，不能延后到 setTimeout。 */
-            case 'bindFolder': {
-                if (folderBusy) { showToast('正在处理，请稍候'); break; }
-                folderBusy = true;
-                FsMedia.bindDirectory().then(function (r) {
-                    folderBusy = false;
-                    saveUiCfg({ fsMedia: 'fsa' });
-                    showToast('已绑定「' + r.name + '」，搬入 ' + r.moved + ' 块内容');
-                    pushLog('容器存放位置 → 文件夹「' + r.name + '」（搬入 ' + r.moved + ' 块内容）');
-                    refreshFolderName();
-                    render();
-                }, function (e) {
-                    folderBusy = false;
-                    showToast('绑定失败：' + (e && e.message ? e.message : e), 'err');
-                    pushLog('绑定文件夹失败：' + (e && e.message ? e.message : e), 'error');
-                    render();
-                });
+             * showDirectoryPicker / requestPermission —— 浏览器硬性要求，不能延后到 setTimeout。
+             * 2.13.6：四个动作全部改走 runMediaOp —— 忙标志只有一份（引导层也看得见），
+             * 同步抛错也能清标志，成功/失败都只留一条出口，顺带在两处界面上转个加载圈。 */
+            case 'bindFolder':
+                runMediaOp('正在绑定文件夹…', function () { return FsMedia.bindDirectory(); },
+                    function (r) {
+                        saveUiCfg({ fsMedia: 'fsa' });
+                        showToast('已绑定「' + r.name + '」，搬入 ' + safeNum(r.moved) + ' 块内容');
+                        pushLog('容器存放位置 → 文件夹「' + r.name + '」（搬入 ' + safeNum(r.moved) + ' 块内容）');
+                    });
                 break;
-            }
-            case 'grantFolder': {
-                if (folderBusy) { showToast('正在处理，请稍候'); break; }
-                folderBusy = true;
-                FsMedia.grantDirectory().then(function (r) {
-                    folderBusy = false;
-                    saveUiCfg({ fsMedia: 'fsa' });
-                    showToast('已授权「' + r.name + '」');
-                    pushLog('文件夹已授权：' + r.name);
-                    refreshFolderName();
-                    render();
-                }, function (e) {
-                    folderBusy = false;
-                    showToast('授权失败：' + (e && e.message ? e.message : e), 'err');
-                    render();
-                });
+            case 'grantFolder':
+                runMediaOp('正在请求文件夹权限…', function () { return FsMedia.grantDirectory(); },
+                    function (r) {
+                        saveUiCfg({ fsMedia: 'fsa' });
+                        showToast('已授权「' + r.name + '」');
+                        pushLog('文件夹已授权：' + r.name);
+                    });
                 break;
-            }
-            case 'unbindFolder': {
-                if (folderBusy) { showToast('正在处理，请稍候'); break; }
-                folderBusy = true;
-                FsMedia.unbindDirectory().then(function (r) {
-                    folderBusy = false;
-                    saveUiCfg({ fsMedia: 'gm' });
-                    showToast('已解绑，搬回 ' + r.moved + ' 块内容（文件夹里的没删，你自己处理）');
-                    pushLog('容器存放位置 → 油猴存储（搬回 ' + r.moved + ' 块）；原文件夹内容保留', 'warn');
-                    refreshFolderName();
-                    render();
-                }, function (e) {
-                    folderBusy = false;
-                    showToast('解绑失败：' + (e && e.message ? e.message : e), 'err');
-                    render();
-                });
+            case 'unbindFolder':
+                runMediaOp('正在搬回油猴存储…', function () { return FsMedia.unbindDirectory(); },
+                    function (r) {
+                        saveUiCfg({ fsMedia: 'gm' });
+                        showToast('已解绑，搬回 ' + safeNum(r.moved) + ' 块内容（文件夹里的没删，你自己处理）');
+                        pushLog('容器存放位置 → 油猴存储（搬回 ' + safeNum(r.moved) + ' 块）；原文件夹内容保留', 'warn');
+                    });
                 break;
-            }
             case 'folderRefresh': refreshFolderName(); showToast('已刷新'); break;
             case 'autoGrantToggle': {
                 const now = !getUiCfg().autoGrant;
@@ -16008,49 +16264,64 @@
 
     function tryInjectThenSend(composerEl) {
         try {
-            if (typeof injectionPending !== 'function' || !injectionPending()) return false;
             const composer = composerEl && (isTextInputEl(composerEl) || composerEl.isContentEditable) ? composerEl : findComposer();
             if (!composer) return false;
             const userText = composerValue(composer).trim();
             if (!userText) return false;
 
+            // 2.14.0 需求17：计划模式开启时，**每一条**用户消息都自动附上最新计划状态。
+            // 以前这里第一行就 return —— 只有「新对话首次注入」才接管，计划块完全没接上。
+            // 现在是两条独立的接管理由：协议注入（新对话首条）或 计划附件（计划模式下的每一条）。
+            const wantInject = (typeof injectionPending === 'function') && injectionPending();
+            const planBlock = planUserAttachText(userText);
+            if (!wantInject && !planBlock) return false;
+
             // 2.13.0：上下文里提示词 / 目录卡都已在 → 本次不接管（避免把同一份东西再塞一遍）
-            const fresh = injectionPayloadFresh();
-            if (!fresh) { markInjected(); invalidateContextScan(); pushLog('协议信息已在会话里，本次发送不再注入'); return false; }
+            let fresh = null;
+            if (wantInject) {
+                fresh = injectionPayloadFresh();
+                if (!fresh) { markInjected(); invalidateContextScan(); pushLog('协议信息已在会话里，本次发送不再注入'); return false; }
+            }
 
             // #7 先设接管窗口，再改输入框、再发送：用户这一次按下产生的其它事件全部无效
             injectGuardUntil = Date.now() + 1600;
-            const combined = buildInjection(userText, fresh);
+            // 新对话首条（协议注入）与普通条（仅计划附件）都要带上最新计划 —— 需求17 要求「每一条」。
+            const combined = fresh
+                ? (buildInjection(userText, fresh) + (planBlock ? '\n\n' + planBlock : ''))
+                : (userText + '\n\n' + planBlock);
             const setResult = setComposerText(composer, combined);
             if (!setResult || !setResult.ok) {
-                pushLog('新对话注入失败：' + ((setResult && setResult.error) || '写输入框失败'), 'warn');
+                pushLog((fresh ? '新对话注入' : '计划状态附加') + '失败：' + ((setResult && setResult.error) || '写输入框失败'), 'warn');
                 injectGuardUntil = 0;
                 return false;
             }
-            markInjected();
-            invalidateContextScan();
+            if (fresh) { markInjected(); invalidateContextScan(); }
             markSelfSent(combined);
-            witnessSend('user-inject');
-            pushLog('新对话注入：提示词' + (CONFIG.INJECT_MANUAL !== false ? ' + 手册' : '') + '已与你的消息合并为一条（' + combined.length + ' 字符）');
+            witnessSend(fresh ? 'user-inject' : 'user-plan');
+            if (fresh) {
+                pushLog('新对话注入：提示词' + (CONFIG.INJECT_MANUAL !== false ? ' + 手册' : '') + '已与你的消息合并为一条（' + combined.length + ' 字符）');
+            } else {
+                pushLog('计划状态已附在你的消息后面一起发出（' + planBlock.split('\n').length + ' 行）');
+            }
             setStatus('pending', '已并入信息，发送中…');
 
             // #6 平台会不会已经抢先把用户那条发出去了？真发出去了就不再点第二次（那就是打断）
             if (typeof hasUserMessageWith === 'function' && hasUserMessageWith(userText)) {
                 pushLog('检测到你的消息已经被平台发出：不再重复发送，改为等 AI 说完补发协议信息', 'warn');
                 setComposerText(composer, '');
-                injectFallbackSend('平台抢先发送');
+                if (fresh) injectFallbackSend('平台抢先发送');
                 return true;
             }
 
             triggerSend(composer).then(function (res) {
-                if (res && res.ok) pushLog('注入消息已发送');
+                if (res && res.ok) pushLog(fresh ? '注入消息已发送' : '带计划状态的消息已发送');
                 else {
-                    pushLog('注入消息发送失败：' + ((res && res.reason) || '未知'), 'warn');
-                    injectFallbackSend((res && res.reason) || '发送未成功');
+                    pushLog('消息发送失败：' + ((res && res.reason) || '未知'), 'warn');
+                    if (fresh) injectFallbackSend((res && res.reason) || '发送未成功');
                 }
             }).catch(function (err) {
                 errlog('inject send threw:', err);
-                injectFallbackSend('发送异常');
+                if (fresh) injectFallbackSend('发送异常');
             });
             return true;
         } catch (e) {
@@ -16204,7 +16475,11 @@
             clear: planClear, find: planFindItem, ensureFile: ensurePlanFile,
             cycleItem: cyclePlanItem, outboundText: planOutboundText,
             isPlanFileCmd: isPlanFileCmd, isMutating: planIsMutating, sub: planSub, run: doPlan,
-            text: readPlanText
+            text: readPlanText,
+            // 2.14.0：条目元数据 / 新增的 edit·note / 附给用户消息的计划块
+            editText: planEditText, setNote: planSetNote, fmtWhen: fmtPlanWhen,
+            attachText: planUserAttachText, outboundText: planOutboundText,
+            dock: updatePlanDock
         };
         // #3 会话切换 / 新建对话 → 自动初始化
         DSW.conv = {
@@ -16251,6 +16526,18 @@
                 click: handleOnboardClick,
                 media: onboardMedia,
                 el: function () { return uiOnboard; }
+            },
+            // 2.13.6：存储介质操作（忙标志 / 加载条 / 统一入口）
+            media: {
+                busy: function () { return mediaBusy; },
+                busyText: function () { return mediaBusyText; },
+                busyHTML: mediaBusyHTML,
+                setBusy: setMediaBusy,
+                run: runMediaOp,
+                panelHTML: folderPanelHTML,
+                storeLabel: storeLineLabel,
+                summary: folderSummaryText,
+                setFolderName: function (n) { folderHandleName = n || []; }
             },
             settingsEl: settingsEl,
             filesEl: filesEl,
