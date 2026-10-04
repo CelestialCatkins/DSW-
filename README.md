@@ -134,6 +134,14 @@ AI 每执行完一批命令，容器就要往聊天框发一条“回执”告�
 - 脚本本身不上传任何数据，文件只存在你选的介质里。
 
 ---
+<img width="1080" height="1996" alt="3718b90f-e78f-4438-8283-89425242afaa_thumb" src="https://github.com/user-attachments/assets/0bf9a3b2-0846-45a3-8bb5-4d8c63eca63d" />
+
+<img width="1080" height="2012" alt="ef6fe8f3-3591-454d-b0d8-7f22baa9c167_thumb" src="https://github.com/user-attachments/assets/d0a10928-e3aa-429b-a5fb-4df41d16f9fa" />
+
+<img width="1080" height="2014" alt="ae059401-47d2-46bf-ad0c-148372e90824_thumb" src="https://github.com/user-attachments/assets/e2ae0da3-83e5-418d-9727-0c19a1a5783c" />
+
+<img width="1080" height="1984" alt="49ec51fa-9c96-462c-80c2-8768efb41587_thumb" src="https://github.com/user-attachments/assets/62dbe203-c0ff-4c09-8897-3de6f4ed4f0e" />
+
 
 ## 许可
 
