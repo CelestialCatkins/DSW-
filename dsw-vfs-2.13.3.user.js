@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.13.2
-// @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法
+// @version      2.13.3
+// @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框
 // @author       dsw-vfs
 // @match        https://chat.deepseek.com/*
 // @match        https://deepseek.com/*
@@ -68,7 +68,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.13.2';
+    const VERSION = '2.13.3';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -200,6 +200,7 @@
     const STORE_BOOT_GLOBAL = 'dsw2:bootstrap:last';   // #5 全局注入记录（跨 URL 变更/刷新防重复注入）
     const STORE_BALL_POS = 'dsw2:ui:ball-pos';
     const STORE_UI_CFG = 'dsw2:ui:cfg';
+    const STORE_UI_ONBOARD = 'dsw2:ui:onboard';   // 2.13.3：首次运行引导已完整看过
     const STORE_MANUAL_VER = 'dsw2:manual:ver';
     const STORE_MANUAL_HASH = 'dsw2:manual:hash';   // 容器自己写下的那版手册的指纹（判断「手册是否被人改过」）
 
@@ -1401,6 +1402,30 @@
 
         function handleName() { return fsaHandle('get').then(function (h) { return h ? h.name : ''; }).catch(function () { return ''; }); }
 
+        /* ---- 切介质（2.13.3）：给首次运行的「个性化设置」用。
+         * gm / opfs 之间可以自由换（内容自动搬过去）；换 fsa 必须走 bindDirectory，
+         * 因为 showDirectoryPicker 只能在用户点击的调用栈里调。
+         * 语义与 unbindDirectory 完全一致：搬完核实，再回收旧介质。 */
+        async function useMedium(kind) {
+            const want = (kind === 'opfs') ? 'opfs' : 'gm';
+            if (implName === want) return { media: want, moved: 0, same: true };
+            if (blocked) throw new Error('文件夹暂时没接上（' + blocked.reason + '），先把授权打开再换介质');
+            let next;
+            if (want === 'opfs') {
+                next = opfsImpl();
+                try { await next.ready(); } catch (e) {
+                    throw new Error('浏览器沙盒（OPFS）不可用：' + ((e && e.message) || e));
+                }
+            } else {
+                next = gmImpl();
+            }
+            const moved = await switchTo(next, want === 'opfs' ? '浏览器沙盒' : '油猴存储');
+            CONFIG.FS_MEDIA = want;
+            readyPromise = Promise.resolve(want);
+            lastError = '';
+            return { media: want, moved: moved };
+        }
+
         function seed() {
             if (seeded) return;
             seeded = true;
@@ -1457,6 +1482,8 @@
             },
             grantDirectory: grantDirectory,
             unbindDirectory: unbindDirectory,
+            // 2.13.3：首次运行面板直接在 gm / opfs 之间切换（fsa 走 bindDirectory）
+            useMedium: useMedium,
             handleName: handleName,
             supported: function () { try { return typeof showDirectoryPicker === 'function'; } catch (e) { return false; } },
             // 介质用不了时非空：写入必须被拦住（否则内容会分裂到两个介质里）
@@ -13002,6 +13029,24 @@
         '.dlg p{margin:0 0 12px;font-size:13px;color:var(--dim);line-height:1.6}',
         '.dlg .row2{display:flex;gap:8px;margin-top:12px}',
         '.dlg .row2 .btn{flex:1}',
+        /* ---- 2.13.3 首次运行的「个性化设置」引导层 ---- */
+        '.ob-mask{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9;background:rgba(0,0,0,.55);display:none;align-items:flex-end;justify-content:center;pointer-events:auto}',
+        '.ob-mask.on{display:flex}',
+        '.ob{width:100%;max-width:520px;max-height:92vh;overflow:auto;background:var(--bg);border:1px solid var(--ln);',
+        'border-radius:16px 16px 0 0;padding:0 0 14px;-webkit-overflow-scrolling:touch}',
+        '.ob-h{padding:14px 14px 10px;border-bottom:1px solid var(--ln);position:sticky;top:0;background:var(--bg);z-index:2}',
+        '.ob-h h3{margin:0 0 3px;font-size:17px}',
+        '.ob-h p{margin:0;font-size:12px;color:var(--dim);line-height:1.6}',
+        '.ob-sec{padding:12px 14px 2px}',
+        '.ob-sec>.st{font-size:12px;font-weight:700;letter-spacing:.04em;color:var(--ac);margin:0 0 6px}',
+        '.ob-list{background:var(--sf);border:1px solid var(--ln);border-radius:12px;overflow:hidden}',
+        '.ob-list>div{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;font-size:12.5px;line-height:1.6;border-top:1px solid var(--ln)}',
+        '.ob-list>div:first-child{border-top:none}',
+        '.ob-list .k{flex:none;min-width:64px;color:var(--dim)}',
+        '.ob-list .v{flex:1}',
+        '.ob-list code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);padding:1px 5px;border-radius:5px}',
+        '.ob-foot{position:sticky;bottom:0;display:flex;gap:8px;padding:12px 14px 0;background:var(--bg)}',
+        '.ob-foot .btn{flex:1;min-height:46px}',
 
         /* 导入进度（19-importexport 的 updateImportProg 直接查这个类名） */
         '.dsw2-importprog{margin:0 2px 8px;font-size:12px;color:var(--dim);font-family:var(--mono);font-variant-numeric:tabular-nums}',
@@ -13602,6 +13647,240 @@
         applyTheme();
         render();
         setTimeout(function () { setStatus('idle', '等待第一条命令', { autoHide: 6000 }); }, 600);
+        /* 2.13.3：首次运行（没看过引导）弹一次个性化设置 + 使用说明。
+         * 延后一点：容器刚就位、真实文件也读回来了，存储位置那一栏才是准的。 */
+        if (!onboardSeen()) setTimeout(function () { try { showOnboarding(false); } catch (e) {} }, 420);
+    }
+
+    /* ------------------------- 2.13.3 首次运行：个性化设置 + 使用说明 -------------------------
+     * 之前只在设置页里“默默”摆着所有开关，新用户第一次打开完全不知道该动哪里。
+     * 这里做一层**只弹一次**的引导：把「程序实际有的东西」摆出来让你当场选完，
+     * 顺带把悬浮球手势、面板入口路径、协议写法一次说清。
+     * 内容全部由真实实现反推（FsMedia 状态 / getUiCfg / 菜单项），
+     * 以后加了选项这里跟着长，不会出现“面板里有、引导里没有”的悬空说明。 */
+    let uiOnboard = null;
+
+    function onboardSeen() { return !!Store.get(STORE_UI_ONBOARD, false); }
+    function markOnboardSeen() { Store.set(STORE_UI_ONBOARD, true); }
+    function onboardMedia() { try { return FsMedia.status().media || 'gm'; } catch (e) { return 'gm'; } }
+
+    /* 三个存放位置的**真实差异**（文案按实际行为写，不夸大） */
+    function onboardMediaCards() {
+        const cur = onboardMedia();
+        const sup = (function () { try { return FsMedia.supported(); } catch (e) { return false; } })();
+        const st = (function () { try { return FsMedia.status(); } catch (e) { return {}; } })();
+        const bound = folderHandleName.length > 0;
+        const opts = [
+            {
+                k: 'gm', t: '油猴存储', d: '装在脚本自己的存储里。不用授权、不用挑文件夹，'
+                    + '最省事；代价是容量小，清浏览器数据会一起没。',
+                badge: safeNum(st.blobs) + ' 块内容'
+            },
+            {
+                k: 'opfs', t: '浏览器沙盒（OPFS）', d: '存在这个站点的沙盒文件系统里，容量比油猴存储大得多，'
+                    + '不会因为清脚本缓存而丢；文件管理器里看不到它。',
+                badge: '容量大'
+            },
+            {
+                k: 'fsa', t: '手机 / 电脑文件夹', d: sup
+                    ? '内容按原路径真实落成文件（容器里的 /src/a.js 就是文件夹里的 src/a.js），'
+                    + '文件管理器能看、能改、能备份；需要你授权一次，浏览器可能会在很久之后忘掉授权（会自动补上）。'
+                    : '这台浏览器不支持选文件夹（没有 showDirectoryPicker），用不了这一项。',
+                badge: bound ? ('已绑定「' + folderHandleName + '」') : '推荐'
+            }
+        ];
+        let h = '';
+        for (const o of opts) {
+            const on = cur === o.k;
+            const dis = (o.k === 'fsa' && !sup);
+            h += '<div class="ob-list"><div>' +
+                '<span class="k"><button type="button" class="btn sm' + (on ? ' pri' : '') + '" data-om="' + o.k + '"'
+                + (dis ? ' disabled' : '') + '>' + esc(o.t) + '</button></span>' +
+                '<span class="v">' + esc(o.d) + (o.badge ? '<br><b>' + esc(o.badge) + '</b>' : '') + '</span>' +
+                '</div></div>';
+        }
+        if (sup) {
+            h += '<div class="set btns"><button class="btn sm" data-a="bindFolder">'
+                + (bound ? '重新选文件夹…' : '选择文件夹…') + '</button>' +
+                (bound ? '<button class="btn sm dgr" data-a="unbindFolder">解绑（搬回油猴存储）</button>' : '') +
+                '</div>';
+        }
+        return h;
+    }
+
+    /* 引导层里的开关：与设置页的 swRow 结构一致，只是开关属性换成 data-otog，
+     * 避免和面板委托撞车（引导层不在面板里，点不到设置页那一套）。 */
+    function obSw(key, label, sub, on) {
+        return '<div class="set" data-otog="' + key + '"><span class="lb">' + label +
+            (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</span>' +
+            '<span class="sw' + (on ? ' on' : '') + '" role="switch" aria-checked="' + (on ? 'true' : 'false') + '"></span></div>';
+    }
+    function onboardSwitches() {
+        const c = getUiCfg();
+        const pm = (function () { try { return getPlanState().active; } catch (e) { return false; } })();
+        return obSw('autoSend', '自动回传', '命令执行完自动把回执发回聊天（关掉就只排队）', c.autoSend !== false) +
+            obSw('autoBootstrap', '新对话自动注入协议', '换新对话时自动把“怎么说命令”告诉 AI', c.autoBootstrap !== false) +
+            obSw('rateLimit', '节奏器', '发得太快时自动降速，避免被平台当刷屏', c.rateLimit !== false) +
+            obSw('notifyVibrate', '提醒 · 震动', 'AI 发完一条长回复时震一下', c.notifyVibrate !== false) +
+            obSw('notifySound', '提醒 · 提示音', '同上，声音版', c.notifySound !== false) +
+            obSw('terminateAutoPause', '终止符后自动暂停', 'AI 说完“已完成”就停下识别，省电省流量', c.terminateAutoPause !== false) +
+            obSw('planMode', '计划模式', '开启后 AI 只能写计划文件，写别的会被拦下要你确认', !!pm);
+    }
+
+    function onboardHTML() {
+        const cfg = getUiCfg();
+        let look = '<div class="colwrap">';
+        for (const k of THEME_KEYS) {
+            const t = THEMES[k];
+            const c = isDark() ? t.d : t.l;
+            look += '<button class="swatch' + (currentPalette() === k ? ' on' : '') + '" data-oth="' + k + '">' +
+                '<i style="background:' + c.ac + '"></i><i style="background:' + c.bg + '"></i><span>' + t.n + '</span></button>';
+        }
+        look += '</div><div class="seg">' +
+            '<button class="' + (themePref() === 'light' ? 'on' : '') + '" data-otm="light">浅色</button>' +
+            '<button class="' + (themePref() === 'dark' ? 'on' : '') + '" data-otm="dark">深色</button>' +
+            '<button class="' + (themePref() === 'auto' ? 'on' : '') + '" data-otm="auto">跟随系统</button></div>';
+
+        return '<div class="ob-h"><h3>DSW 已就位 · 先做两件事</h3>' +
+            '<p>版本 ' + esc(VERSION) + ' · 下面每一项都能当场改，也随时能在「⋮ → 设置」里改回来。</p></div>' +
+
+            '<div class="ob-sec"><p class="st">① 内容存在哪里</p>' + onboardMediaCards() + '</div>' +
+
+            '<div class="ob-sec"><p class="st">② 看着顺眼</p>' + look + '</div>' +
+
+            '<div class="ob-sec"><p class="st">③ 行为偏好</p><div class="set">' + onboardSwitches() + '</div></div>' +
+
+            '<div class="ob-sec"><p class="st">悬浮球怎么用</p><div class="ob-list">' +
+            '<div><span class="k">单击</span><span class="v">展开 / 收起工作区面板</span></div>' +
+            '<div><span class="k">双击</span><span class="v">暂停 / 继续识别（球上会变成双竖线）</span></div>' +
+            '<div><span class="k">长按</span><span class="v">重新识别这一页里的命令（换了页面、刷新后好用）</span></div>' +
+            '<div><span class="k">拖动</span><span class="v">换位置，记住你放的地方</span></div>' +
+            '</div></div>' +
+
+            '<div class="ob-sec"><p class="st">面板里的东西在哪</p><div class="ob-list">' +
+            '<div><span class="k">头部 ✕</span><span class="v">收起工作区（就是「更多」旁边那个）</span></div>' +
+            '<div><span class="k">头部 ⋮</span><span class="v">所有入口都在里面：'
+            + '<code>导航</code>（文件 / 回执 / 设置 / 关于）、'
+            + '<code>控制台</code>（刷新 / 注入协议信息 / 快照 / 清空日志 / 切换配色 / 收起工作区）、'
+            + '<code>当前页</code>（新建、打包成附件、批量选择…）、'
+            + '<code>危险操作</code>（清空容器）</span></div>' +
+            '<div><span class="k">回执</span><span class="v">每条命令的执行结果都在「回执」页；命令出错时先看那里</span></div>' +
+            '<div><span class="k">文件页</span><span class="v">单击文件夹进去；长按文件/文件夹出操作菜单；批量模式可多选</span></div>' +
+            '<div><span class="k">设置页</span><span class="v">分「概览 · 协议 · 出站 · 新对话 · 提醒 · 计划 · 数据 · 容器存放位置 · 外观」九组手风琴</span></div>' +
+            '</div></div>' +
+
+            '<div class="ob-sec"><p class="st">AI 怎么给它下命令</p><div class="ob-list">' +
+            '<div><span class="k">写法</span><span class="v">整段放进 <code>```dsw</code> 代码块；'
+            + '平台把围栏吃掉时，靠块内的 <code>&lt;dsw&gt;</code> … <code>&lt;/dsw&gt;</code> 认</span></div>' +
+            '<div><span class="k">例子</span><span class="v"><code>write /hello.md</code> 然后下一行 '
+            + '<code>&lt;&lt;&lt;</code> 正文 <code>&lt;&lt;&lt;</code></span></div>' +
+            '<div><span class="k">怎么学</span><span class="v">直接问 AI <code>help</code>、<code>read 手册</code>，'
+            + '或看「⋮ → 注入协议信息」排进队列的那段</span></div>' +
+            '</div>' +
+            '<div class="set btns"><button class="btn sm" data-a="copyEg">复制一段示例</button>' +
+            '<button class="btn sm" data-a="inject">把协议信息发给 AI</button></div></div>' +
+
+            '<div class="ob-foot">' +
+            '<button class="btn" data-ob="later">稍后再说</button>' +
+            '<button class="btn pri" data-ob="done">完成并注入协议</button>' +
+            '</div>';
+    }
+
+    function closeOnboard(silent) {
+        if (!uiOnboard) return;
+        try { uiOnboard.remove(); } catch (e) {}
+        uiOnboard = null;
+        if (!silent) markOnboardSeen();
+    }
+    function refreshOnboard() {
+        if (!uiOnboard) return;
+        const box = uiOnboard.querySelector('.ob');
+        if (box) box.innerHTML = onboardHTML();
+    }
+    function showOnboarding(force) {
+        if (!uiRoot) return;
+        if (uiOnboard) { refreshOnboard(); return; }
+        if (!force && onboardSeen()) return;
+        const mask = el('div', 'ob-mask on');
+        mask.appendChild(el('div', 'ob'));
+        uiRoot.appendChild(mask);
+        uiOnboard = mask;
+        refreshOnboard();
+        pushLog('首次运行引导已打开');
+    }
+    /* 引导层里点遮罩 = 稍后再说（不写“已看过”，下次开页面还会弹） */
+    function maybeCloseOnboardByBackdrop(e) {
+        if (!uiOnboard) return;
+        if (e.target === uiOnboard) closeOnboard(true);
+    }
+
+    function handleOnboardClick(t) {
+        const om = t.closest('[data-om]');
+        if (om) {
+            const k = om.getAttribute('data-om');
+            if (k === 'fsa') { handleAction('bindFolder'); return; }
+            try {
+                FsMedia.useMedium(k).then(function (r) {
+                    saveUiCfg({ fsMedia: k });
+                    showToast('已切到' + (k === 'opfs' ? '浏览器沙盒' : '油猴存储') + '，搬入 ' + safeNum(r.moved) + ' 块内容');
+                    pushLog('容器存放位置 → ' + (k === 'opfs' ? '浏览器沙盒' : '油猴存储') + '（搬入 ' + safeNum(r.moved) + ' 块）');
+                    refreshOnboard();
+                }, function (e) {
+                    showToast('切换失败：' + ((e && e.message) || e), 'err');
+                    refreshOnboard();
+                });
+            } catch (e) { showToast('切换失败：' + ((e && e.message) || e), 'err'); }
+            return true;
+        }
+        const oth = t.closest('[data-oth]');
+        if (oth) { saveUiCfg({ palette: oth.getAttribute('data-oth') }); applyTheme(); refreshOnboard(); return true; }
+        const otm = t.closest('[data-otm]');
+        if (otm) { saveUiCfg({ theme: otm.getAttribute('data-otm') }); applyTheme(); refreshOnboard(); return true; }
+        const otog = t.closest('[data-otog]');
+        if (otog) {
+            const key = otog.getAttribute('data-otog');
+            toggleCfg(key);
+            if (key === 'autoSend' || key === 'rateLimit' || key === 'autoBootstrap') applyCfgSideEffects(key);
+            refreshOnboard();
+            return true;
+        }
+        const ob = t.closest('[data-ob]');
+        if (ob) {
+            const k = ob.getAttribute('data-ob');
+            if (k === 'done') {
+                markOnboardSeen();
+                closeOnboard(true);
+                showToast('设置完成');
+                pushLog('首次运行引导已完成');
+                handleAction('inject');
+                return true;
+            }
+            closeOnboard(true);       // 稍后再说：不记“已看过”，下个页面会再问一次
+            showToast('随时点悬浮球 · 面板 › ⋮ › 设置 回来改');
+            return true;
+        }
+        const a = t.closest('[data-a]');
+        if (a) {
+            const act = a.getAttribute('data-a');
+            // 这两个会改到引导层自己显示的状态（绑定/解绑）→ 完事后重画引导
+            if (act === 'bindFolder' || act === 'unbindFolder' || act === 'grantFolder') {
+                // 绑定/解绑内部会调 refreshFolderName()，那边会把引导层重画 —— 不用自己排定时器
+                handleAction(act, a);
+                return true;
+            }
+            handleAction(act, a);
+            return true;
+        }
+        return true;   // 引导层内部的其它点击一律吃掉，不往下传
+    }
+    /* 引导层里的开关也要把配置推到运行时（toggleCfg 本身已经做大部分，这里补齐
+     * 引导里可能新增的 key，避免两处逻辑漂移）。 */
+    function applyCfgSideEffects(key) {
+        const cfg = getUiCfg();
+        try {
+            if (key === 'rateLimit') CONFIG.RATE_LIMIT_ENABLED = cfg.rateLimit !== false;
+            else if (key === 'autoBootstrap') CONFIG.AUTO_BOOTSTRAP = cfg.autoBootstrap !== false;
+        } catch (e) {}
     }
 
     /* ------------------------- 悬浮球：位置与手势 ------------------------- */
@@ -13835,7 +14114,8 @@
             { t: '快照（检查点 + JSON）', icon: ic('snap'), a: 'snap' },
             { t: '清空日志', icon: ic('list'), a: 'clearLogs' },
             { t: '切换配色', icon: ic('pal'), a: 'theme' },
-            { t: '收起工作区', icon: ic('x'), a: 'close' }
+            { t: '收起工作区', icon: ic('x'), a: 'close' },
+            { t: '首次运行设置与说明', icon: ic('info'), a: 'onboard' }
         ] });
 
         if (inEditor) {
@@ -14636,6 +14916,8 @@
             FsMedia.handleName().then(function (n) {
                 folderHandleName = n || [];
                 try { render(); } catch (e) {}
+                // 引导层开着时，存储位置那一栏也得跟着变（绑定/解绑是异步的）
+                try { refreshOnboard(); } catch (e) {}
             }, function () {});
         } catch (e) {}
     }
@@ -14762,7 +15044,8 @@
             '<div class="stat">' +
             '<button data-a="goFiles"><b>' + fileCount + '</b><span>文件</span></button>' +
             '<button data-a="goUndo"><b>' + safeNum(VirtualFS.undoIdx().cursor) + '</b><span>可撤销</span></button>' +
-            '<button data-a="goAbout"><b>' + safeNum(AnchorStore.size()) + '</b><span>锚点</span></button></div>',
+            '<button data-a="goAbout"><b>' + safeNum(AnchorStore.size()) + '</b><span>锚点</span></button></div>' +
+            '<div class="set btns"><button class="btn sm" data-a="onboard">首次运行设置与说明…</button></div>',
             fileCount + ' 文件');
 
         /* 协议 */
@@ -15134,6 +15417,9 @@
         /* 长按弹上下文菜单后，松手浏览器会补发一次 click（此时命中的可能是刚弹出的遮罩）：
            700ms 内一律吞掉，免得又打开文件、或把菜单/面板立刻关掉。 */
         if (Date.now() - rowLongPressAt < 700) return;
+        /* 引导层优先：它盖在最上面，里面的任何点击都**不往下传**
+         * （否则点开关会同时触发面板的委托，关掉面板或弹两次确认框）。 */
+        if (uiOnboard && uiOnboard.contains(t)) { maybeCloseOnboardByBackdrop(e); handleOnboardClick(t); return; }
         const inSheet = !!(uiSheet && uiSheet.contains(t));
         const inModal = !!(uiModal && uiModal.contains(t));
 
@@ -15271,6 +15557,7 @@
         switch (a) {
             case 'close': closePanel(); break;
             case 'theme': openThemeSheet(); break;
+            case 'onboard': showOnboarding(true); break;
             case 'refresh': showToast('已刷新'); render(); break;
             case 'inject':
                 try {
@@ -15905,6 +16192,18 @@
             io: { stats: ioStats, reset: ioReset, noteIn: ioNoteIn, noteOut: ioNoteOut },
             statusBar: { refresh: refreshStatusBar, text: statusBarText },
             confirm: { matches: confirmMatches, ask: askConfirm },
+            // 2.13.3 首次运行引导层：HTML 是纯函数，状态/点击处理都是薄壳，直测它们
+            onboard: {
+                html: onboardHTML,
+                open: showOnboarding,
+                close: closeOnboard,
+                refresh: refreshOnboard,
+                seen: onboardSeen,
+                markSeen: markOnboardSeen,
+                click: handleOnboardClick,
+                media: onboardMedia,
+                el: function () { return uiOnboard; }
+            },
             settingsEl: settingsEl,
             filesEl: filesEl,
             editorEl: editorEl,
