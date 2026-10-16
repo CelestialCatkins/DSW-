@@ -84,6 +84,10 @@ for (const h of hooks) {
 }
 const onlyDoubao = (SRC.match(/composerSelector:/g) || []).length;
 ok(onlyDoubao === 1, 'composerSelector 只有豆包声明了（实际 ' + onlyDoubao + ' 处）');
+ok((SRC.match(/function resolveEditableTarget\(/g) || []).length === 1, 'resolveEditableTarget 只定义一次');
+ok(SRC.indexOf('el = resolveEditableTarget(el) || el;') > SRC.indexOf('function setComposerText(el, text) {'),
+    'setComposerText 开头先下钻到真可编辑层（豆包容器 chat_input_input 自己不可编辑）');
+ok(/querySelector\('\[contenteditable="true"\]'\)/.test(SRC), '下钻用 [contenteditable="true"] 选择器（真机实测那层）');
 ok(/PLATFORM\.userMsgSelector && el\s*\n?\s*&& typeof el\.matches/.test(SRC.replace(/\s+\n/g, '\n')) ||
     /PLATFORM\.userMsgSelector && el/.test(SRC), 'isUserMessage 会先问平台声明的用户消息选择器');
 ok(/dsThinkSelectorMatch/.test(SRC) && (SRC.match(/dsThinkSelectorMatch\(/g) || []).length >= 2,
@@ -163,17 +167,31 @@ function mkEl(tag, opts) {
         contains: function (other) { let c = other; while (c) { if (c === node) return true; c = c.parentElement; } return false; },
         click: function () { node._clicks++; },
         addEventListener: function () {},
+        focus: function () {},
+        dispatchEvent: function () {},
         appendChild: function (c) { node.children.push(c); node.childNodes.push(c); c.parentElement = node; return c; }
     };
     (opts.kids || []).forEach(function (c) { node.appendChild(c); });
     return node;
 }
 
+let lastRange = null;
 const doc = {
     _nodes: [],
     querySelectorAll: function (sel) { return doc._nodes.filter(function (n) { return matchSel(n, sel); }); },
     querySelector: function (sel) { return doc.querySelectorAll(sel)[0] || null; },
-    addEventListener: function () {}
+    addEventListener: function () {},
+    // contenteditable 写入路径需要的三个桩（与真浏览器同形状：range 选定 → execCommand 插入）
+    createRange: function () {
+        return { _n: null, selectNodeContents: function (n) { this._n = n; lastRange = this; } };
+    },
+    execCommand: function (cmd, ui, text) {
+        if (lastRange && lastRange._n) {
+            lastRange._n.textContent = String(lastRange._n.textContent || '') + String(text);
+            return true;
+        }
+        return false;
+    }
 };
 
 // ============================================================ 取源码 + 评估
@@ -196,7 +214,7 @@ const sandbox = {
     CONFIG: { THINKING_MAX_DEPTH: 25, STREAM_MARKER_MAX_DEPTH: 6 },
     GENERATING_CACHE_MS: 300,          // 与 14-runtime 里的常量一致（只供 isGenerating 的缓存判断）
     document: doc,
-    window: { innerHeight: 900 },
+    window: { innerHeight: 900, getSelection: function () { return { removeAllRanges: function () {}, addRange: function () {} }; } },
     pushLog: function () {},
     errlog: function () {},
     setTimeout: function () { return 0; },
@@ -212,7 +230,8 @@ vm.runInContext(code + `
     isUserMessage: isUserMessage, isInThinkingRegion: isInThinkingRegion,
     hasStopControlNearComposer: hasStopControlNearComposer, isGenerating: isGenerating,
     isThinkRegionNode: isThinkRegionNode, renderedText: renderedText,
-    dsThinkSelectorMatch: dsThinkSelectorMatch
+    dsThinkSelectorMatch: dsThinkSelectorMatch,
+    setComposerText: setComposerText, resolveEditableTarget: resolveEditableTarget
 };`, sandbox, { filename: 'dsw-vfs-doubao.js' });
 const DS = sandbox.__DS;
 
@@ -252,6 +271,29 @@ const fallbackBox = add(mkEl('textarea', {
     rect: { width: 400, height: 40, top: 700, bottom: 740, left: 0, right: 400 }
 }));
 ok(DS.findComposer() === fallbackBox, '声明的输入框不在时退回通用启发式（不会找不到输入框）');
+
+group('乙 · 豆包输入框：容器下钻到真可编辑层（真机实测回归）');
+resetDoc();
+const dwOuter = add(mkEl('div', {
+    cls: 'flex min-h-24 w-full items-stretch flex-1',
+    attrs: { 'data-testid': 'chat_input_input' },
+    rect: { width: 600, height: 48, top: 400, bottom: 448, left: 0, right: 600 }
+}));
+const dwInner = mkEl('div', {
+    contentEditable: true,
+    attrs: { 'contenteditable': 'true' },
+    rect: { width: 580, height: 40, top: 404, bottom: 444, left: 8, right: 588 }
+});
+dwOuter.appendChild(dwInner);
+ok(DS.resolveEditableTarget(dwOuter) === dwInner, '容器自己不可编辑 → 下钻到内层 contenteditable');
+ok(DS.resolveEditableTarget(dwInner) === dwInner, '内层自己就是可编辑的 → 原样返回');
+const wr = DS.setComposerText(dwOuter, 'dsw-x');
+ok(wr && wr.ok === true, '往容器上写也能成功（不再报「不是 textarea/contenteditable」）');
+ok(dwInner.textContent === 'dsw-x', '文字真正落进了内层 contenteditable（实际: ' + JSON.stringify(dwInner.textContent) + '）');
+const dwPlain = add(mkEl('div', { rect: { width: 300, height: 40, top: 500, bottom: 540, left: 0, right: 300 } }));
+ok(DS.resolveEditableTarget(dwPlain) === null, '没有可编辑子层 → 下钻返回 null（不乱找）');
+const wrPlain = DS.setComposerText(dwPlain, 'x');
+ok(wrPlain && wrPlain.ok === false, '无可编辑层时保持旧行为：明确报错而不是静默假装写入');
 
 group('乙 · 发送键：平台声明优先');
 resetDoc();
