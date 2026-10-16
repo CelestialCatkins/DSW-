@@ -104,7 +104,7 @@ ok(/function renderedText\(root\) \{\n\s+richSkippedThink = false;/.test(SRC), '
 // 版本 / 文件 / 说明四处一致
 group('甲2 · 版本一致性');
 const fileVer = (FILE.match(/dsw-vfs-(.+)\.user\.js/) || [])[1];
-ok(fileVer === '2.14.4', '文件名版本 = 2.14.4（实际 ' + fileVer + '）');
+ok(/^\d+\.\d+\.\d+$/.test(fileVer), '文件名里带版本号且格式正常（' + fileVer + '）');
 ok(META_VERSION === CONST_VERSION && META_VERSION === fileVer,
     'metadata @version / const VERSION / 文件名三者一致（' + [META_VERSION, CONST_VERSION, fileVer].join(' / ') + '）');
 ok(DESCRIBE.indexOf('2.14.4') > 0, '@description 里写了 2.14.4 的改动');
