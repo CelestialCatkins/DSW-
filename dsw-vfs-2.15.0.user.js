@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.14.8
+// @version      2.15.0
 // @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压；2.13.6 首次运行的打开顺序收紧为硬保证：**首屏绝不自动展开工作区、也绝不自动弹引导层**，只有用户点悬浮球 → 面板打开 → 引导层才跟着打开（createUI 里显式 closePanel 一次，2.13.4 那句「点球打开工作区」继续挂在球旁）；补掉延迟 120ms 里用户又收回面板时引导层仍盖上来的竞态；「内容存在哪里」这一栏在**设置之后、完成之前**加一根旋转加载动画（引导层与设置页共用同一段 HTML 与同一个忙标志，搬家/授权要几百毫秒到几秒，没有它用户会以为按钮没生效而连点）；切 gm/opfs、绑定、授权、解绑四个动作合并到 runMediaOp 一条路径 —— 引导层里切介质以前完全没上锁（连点两下就是两次并发搬家，内容会分裂）、showDirectoryPicker 同步抛错时忙标志永远清不掉导致按钮永久失效，这两类都已修掉；删掉与 toggleCfg 重复的 applyCfgSideEffects 与无人调用的 setFolderNameForTest；2.14.0 计划模式重新定位：**只负责展示与上下文同步，不再是权限闸门**——开计划时 AI 的 write/edit/delete/mkdir 全部照常（原来「计划模式：写操作已拦截」那一层连同 planDenied 一起删掉了；系统区只读是另一回事，仍照拦，而且现在报的是它自己的理由、不再被计划模式的理由盖住）；**AI 可自主 plan on / plan off**，不再需要用户确认；计划窗口从面板头下方**改为吸附在宿主输入框上方**（挂到 root 而不是 panel 里——panel 带 transform，会成为 fixed 的包含块，放在里面面板一收计划条就跟着跑），默认折叠且只占左侧半宽、右侧半宽留空给宿主页面的「向下滚动」按钮（容器 pointer-events:none，只有 .pin 吃点击），展开时占满整行；条目补上**更新时间与备注**（按条目文字存一份会话级元数据，不污染给 AI 读的 plan.md），新增 `plan edit <定位> <新内容>` 与 `plan note <定位> <备注>`；状态标为已完成时播一道**划线动画**（未完成/进行中不划）——这里踩到一个坑：一次改动会重画两遍（planTouched → renderPlanBar + refreshUI → render），单纯用「见过就不画」会让动画一帧都没画就没了，改成转换时把条目挂进一个短窗口，同一次改动的所有重画都保留动画、窗口过后不再重播；**用户每发一条消息都会自动附上最新计划状态**（新对话首条的协议注入路径也一并附上；与回执那条通道共用「自动同步计划状态」一个开关），所以 AI 与用户看到的始终是同一份、下一轮就是最新的；2.14.1 修引导层「点一下开关就回到最上方」：refreshOnboard 整块重建 innerHTML 时把 .ob-b 连同它的 scrollTop 一起销毁了（开关、配色、明暗、介质按钮全部中招），现在重画前记住位置、重画后还原；并降低**折叠态**计划条高度（49px → 38px）：折叠时收掉 3px 进度条（x/y 与百分比已表达进度）、标题行收紧到 36px、徽标缩小；触控区不跟着缩（项目硬约束 ≥44px），用 .psum::after 往下补 8px 透明热区；2.14.2 首次运行点「完成」不再自动发送系统提示 —— 以前引导层收尾直接调 handleAction("inject") 把提示词+手册排进出站队列，于是用户刚看完引导层、一个字没打，聊天框里就凭空多出一条机器人消息。现在点完成只关层、记已看过，并提示「新对话发第一条消息时会自动附带协议说明」；协议信息仍在新对话里用户第一次点发送时与那句话合成**同一条**发出（用户不输入就永远不发）；2.14.3 引导面板的节奏器开关改名为「节奏器等待」并改准说明：原来叫「节奏器 · 发太快时自动降速」，一是与设置页同一个开关两个叫法，二是节奏器并不「降速」——降速的是用户自己，容器做的是**发太快时先等一等**，说清了才不会被误解成影响 AI 回答速度；2.14.4 DeepSeek 加固：思考区（.ds-think-content 一类）整棵子树不再进正文 —— R1「深度思考」里写的 ```dsw 草稿不会被当命令执行（答案正文 ds-assistant-message-main-content 照旧取全）；页面正在重挂输入区 / 输入区不可见时，执行命令与点发送都先等一等（有上限，超时放行并留痕，随后 60s 冷却），不在重渲染的中间态上盲推；非 DeepSeek 平台闸门直通，行为与 2.14.3 一致；2.14.5 豆包适配（按豆包前端产物实测，证据快照见 _fixtures/doubao-evidence.txt）：消息正文认 data-testid="message_text_content"、用户气泡按 send-msg-bubble 类区分、输入框认 chat_input_input、发送键认 chat_input_send_button、「正在生成」认 chat_input_local_break_button（纯图标按钮，靠文案匹配原本抓不到，于是防打断与「等回复输出完」两道闸门在豆包上形同虚设）、思考区认 message_thinking/message_loading、附件认 upload-file-input（豆包现在能直接 upload 进聊天）；顺带把「平台声明的选择器」做成通用钩子（composerSelector / sendSelector / stopSelector / thinkingSelector），其它平台不声明就完全走原路，行为不变；2.14.7 提示词与手册定稿（精炼）/ atomic 禁用定稿：
 // 2.14.8 附件用途正名与全文取材走附件：附件是**发给 AI 读的**（用户打不开也不需要看）；系统提示词与手册新增硬规则——要了解文件的全部内容一律 `upload /路径` 把文件作为附件发给 AI 自己读，read 只用于片段与行号定位；upload 命令说明、交付回执文案、面板附件菜单、read 全文回执提示同步改口；read/回执按请求严格回传（去省略）并入本版；版本号升至 2.14.8
+// 2.15.0 并行脚本作业 + 「大步慢跑」默认工作方式：新增 exec / wait / jobs / kill —— 脚本写在容器里由 AI 执行（dsw.* 读写走 VirtualFS 正门、内部区同样只读，dsw.pool 有界并行、console 与返回值进回执、写失败按单命令存点回滚），nowait 同批多开后台并行、wait 多个作业一次合并取回（开工与收结果各占一次交互）；执行链异步化（executeBatch / runMessage 改 async，handleMessage 从「re-enter 即 skip」改为排队串行，等待窗口绝不清消息）；失败回执也携带作业日志；回执层多步改动（≥3 路径未开计划）冷却提示默认计划模式；幂等重发保护覆盖 exec；首发提示词与手册新增硬规则：大步慢跑（一轮一批、能并行就并行、wait 汇总）与复杂/多步骤/严格顺序任务默认先 plan on 列计划照单推进；手册新增 §3.2 并行脚本作业（dsw API 用法），§3 命令表加脚本行、§7 危险命令并入 exec、§8 加默认开计划、§11 速查加脚本行，冷启动微课补两条；版本号升至 2.15.0
 // 首发提示词改为精炼版（你是 DSW 容器操作员），手册改为§1～§11 精炼文案；
 // atomic 改为整条消息 DENY（识别到即拒绝，不执行任何域），回执给固定改法；
 // 手册 §1 表格 atomic 改为「禁止使用；整批保真用 expect」，§2 告警条与 §11 对齐；
@@ -56,7 +57,7 @@
  *   1) 能合并就一条：纠错/计划进度只搭车在本来就要发的回执里，绝不单独发消息；
  *   2) 稳态回执 ≤6 行（连续 ≥2 轮无错时 1~3 行）；
  *   3) 静默停摆次数必须为 0——任何「没执行」都有回执说明；
- *   4) 危险命令（**所有** delete / upload / restore / undo / redo）永不放宽，必须显式执行域。
+ *   4) 危险命令（**所有** delete / upload / restore / undo / redo / exec）永不放宽，必须显式执行域。
  *
  * 手势（悬浮球）：单击 = 开/收面板；双击 = 暂停/恢复（只改状态条，不弹浮层）；
  *   长按 550ms = 重新识别命令；按住拖动 = 移动。监听统一走 pointerdown/pointermove/pointerup
@@ -74,7 +75,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.14.8';
+    const VERSION = '2.15.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -5450,6 +5451,10 @@
         redo: { kind: 'write', desc: '重做 N 步', example: 'redo 1' },
         restore: { kind: 'write', desc: '回收站 / 恢复', example: 'restore list' },
         upload: { kind: 'write', desc: '生成附件（发给你读）', example: 'upload /dist/app.js' },
+        exec: { kind: 'write', desc: '执行容器脚本（dsw API 读写、pool 并行，可 nowait 后台跑）', example: 'exec /jobs/build.js' },
+        wait: { kind: 'read', desc: '等脚本作业结束并取结果（可多个作业一次等）', example: 'wait j1 j2 timeout=60000' },
+        jobs: { kind: 'read', desc: '列出脚本作业与状态', example: 'jobs' },
+        kill: { kind: 'control', desc: '请求终止脚本作业（协作式）', example: 'kill j1' },
         grep: { kind: 'read', desc: '按内容全容器检索', example: 'grep /src "function "' },
         find: { kind: 'read', desc: '按文件名/路径找（glob：`*` `?` `**`）', example: 'find /src "*.js"' },
         diff: { kind: 'read', desc: '比较两个文件的差异', example: 'diff /a.js /b.js' },
@@ -5518,8 +5523,12 @@
         stat: { syntax: 'stat /路径', notes: ['给 size/chars/lines/hash/mtime；目录给递归统计'] },
         cd: { syntax: 'cd /路径', notes: ['cwd 会影响相对路径；cd / 回根'] },
         expect: { syntax: 'expect /路径 "必须出现的文本"', notes: ['后置断言：失败 → 本批已写入的内容自动回滚'] },
-        plan: { syntax: 'plan on|list|add <条目>|done|doing|todo <序号|last|文字>|del|clear', notes: ['last = 最后一条（可与 plan add 同批）', 'plan off 只有用户能退'] },
+        plan: { syntax: 'plan on|list|add <条目>|done|doing|todo <序号|last|文字>|del|clear', notes: ['last = 最后一条（可与 plan add 同批）', '要求多、步骤多、流程复杂或顺序严格的任务默认先 plan on', 'plan off 只有用户能退'] },
         upload: { syntax: 'upload /路径  |  upload /目录  |  upload /a /b /c', notes: ['附件随消息发出，直接给你（AI）读 —— 要文件全部内容就 upload 它，别用 read 拉全文', '目录或多个路径 → 打成 zip 附件一次发出；平台无附件入口时回退下载'] },
+        exec: { syntax: 'exec /路径 [nowait] [timeout=毫秒]', notes: ['跑容器里的脚本文件：脚本环境有 dsw.*（读写容器/有界并行 pool）与 console，可顶层 await', '默认等到结束才回执；加 nowait 立即返回作业号 jN —— 同批多条 exec nowait 并行开跑，再 wait j1 j2 一次取回', '超时与 kill 是协作式：在 dsw.* 调用、pool/pause 让出点生效'] },
+        wait: { syntax: 'wait <作业号> [作业号…] [timeout=毫秒]', notes: ['等一批作业结束，把全部日志与返回值并进本条回执（默认窗口 60000ms）', '窗口内没结束 → 回执带已产出日志与作业号，再 wait 续取'] },
+        jobs: { syntax: 'jobs', notes: ['列出全部作业：id、状态、耗时、日志行数、改动路径数'] },
+        kill: { syntax: 'kill <作业号>', notes: ['请求终止一个运行中的作业（协作式，下一个让出点停下）；jobs / wait 看结果'] },
         help: { syntax: 'help  |  help <命令>', notes: ['不带参数列出全部命令；带参数给该命令的用法与坑'] },
         mkdir: { syntax: 'mkdir /路径' },
         redo: { syntax: 'redo [N]' }
@@ -5553,7 +5562,11 @@
         回收站: 'restore', 恢复: 'restore',
         断言: 'expect', 校验: 'expect',
         帮助: 'help', 用法: 'help', 怎么用: 'help',
-        计划: 'plan', 待办: 'plan'
+        计划: 'plan', 待办: 'plan',
+        run: 'exec', 运行: 'exec', 跑: 'exec', 执行脚本: 'exec',
+        等待: 'wait', 取结果: 'wait',
+        作业: 'jobs', 进程: 'jobs', tasks: 'jobs',
+        stop: 'kill', 中止: 'kill', 取消: 'kill', 终止: 'kill', 杀掉: 'kill'
     };
 
     // 反查：哪些别名指向这个命令（help 用；也让「有哪些写法」可查）
@@ -5610,9 +5623,12 @@
         // grep 上下文：命中外再带 N 行前后文（定位「这一处在哪个函数/哪一段里」最省来回）
         ctx: 'ctx', context: 'ctx', contexts: 'ctx', around: 'ctx', 上下文: 'ctx', 附近: 'ctx',
         m: 'limit', limit: 'limit', max: 'limit', 上限: 'limit',
+        // 2.15.0 exec/wait：nowait 后台并行 / timeout 等待窗口（毫秒）
+        nowait: 'nowait', 'no-wait': 'nowait', 后台: 'nowait',
+        timeout: 'timeout', 超时: 'timeout',
         all_: 'all'
     };
-    const VALUE_FLAGS = { sep: true, from: true, to: true, head: true, tail: true, count: true, item: true, ext: true, limit: true, ctx: true, depth: true, sort: true, chunk: true, since: true };
+    const VALUE_FLAGS = { sep: true, from: true, to: true, head: true, tail: true, count: true, item: true, ext: true, limit: true, ctx: true, depth: true, sort: true, chunk: true, since: true, timeout: true };
 
     // 命令归一：小写 + 去非字母字符（保留中文）后查表；未命中时做编辑距离 ≤1 的唯一近似
     function normalizeOp(raw) {
@@ -5785,7 +5801,11 @@
         cd: [],
         expect: [],
         help: [],
-        plan: []
+        plan: [],
+        exec: ['nowait', 'timeout'],
+        wait: ['timeout'],
+        jobs: [],
+        kill: []
     };
 
     // 每个命令**位置参数**的上限（不含路径）。多出来的裸词以前被静默吞掉（问题 B：
@@ -5796,7 +5816,8 @@
         read: 0, write: 0, append: 0, mkdir: 0, delete: 0, undo: 0, redo: 0,
         upload: 8,      // 2.13.0：upload 可一次给多个路径（打成 zip 附件）
         rmline: 0, apply: 0, insert: 0,
-        list: 0, tree: 0, stat: 0, cd: 0, grep: 1, move: 1, copy: 1, help: 1, split: 1, sort: 0
+        list: 0, tree: 0, stat: 0, cd: 0, grep: 1, move: 1, copy: 1, help: 1, split: 1, sort: 0,
+        exec: 0, wait: 9, jobs: 0, kill: 0
     };
 
     function unknownPosFor(op, args) {
@@ -6516,7 +6537,7 @@
     // rmline 以前漏在这里 → 它的 dry 溯源不记路径、批量汇总也漏算（反馈 许愿·4 暴露）
     const MUTATING_OPS = {
         write: 1, append: 1, edit: 1, insert: 1, rmline: 1, patch: 1, mkdir: 1, move: 1, copy: 1, split: 1, sort: 1,
-        'delete': 1, restore: 1, undo: 1, redo: 1, upload: 1
+        'delete': 1, restore: 1, undo: 1, redo: 1, upload: 1, exec: 1
     };
 
     function dangerAllowed(cmd, isDomain) {
@@ -6524,6 +6545,7 @@
         const op = cmd.op;
         if (op === 'delete') return isDomain;   // 所有删除（含单个文件）都要显式执行域（手册 §9）
         if (op === 'upload' || op === 'restore' || op === 'undo' || op === 'redo') return isDomain;
+        if (op === 'exec') return isDomain;   // 脚本能写容器：与写命令同级，域外永不放宽
         return true;
     }
 
@@ -6673,6 +6695,10 @@
             case 'redo': out = doSteps(cmd, path, VirtualFS.redo, 'redo'); break;
             case 'restore': out = doRestore(cmd, path); break;
             case 'upload': out = doUpload(cmd, path); break;
+            case 'jobs': out = doJobs(cmd); break;
+            case 'kill': out = doKill(cmd, path); break;
+            case 'exec': out = doExec(cmd, path, ctx); break;
+            case 'wait': out = doWait(cmd, path); break;
             case 'expect': out = doExpect(cmd, path); break;
             default: out = fail(cmd, path, '未实现的命令 ' + cmd.op, { kind: 'syntax' });
         }
@@ -7945,6 +7971,353 @@
         };
     }
 
+    /* --------------------- 2.15.0 脚本作业引擎（并行执行底座） ---------------------
+     * exec 跑 AI 写在容器里的脚本；nowait 后台并行开跑、wait 把多个作业的日志与返回值
+     * 合并进一条回执 —— 开工与收结果各占一次交互，这就是「大步慢跑」的机器侧支撑。
+     * 超时与 kill 是协作式：在每次 dsw.* 调用以及 pool/pause 的让出点检查；
+     * 纯同步死循环无法抢占（页面单线程），长计算请用 dsw.pool 分片让出。 */
+    let jobSeq = 0;
+    const jobStore = new Map();
+    const JOB_WAIT_DEFAULT_MS = 60000;
+    const JOB_WAIT_MAX_MS = 600000;
+    const JOB_LOG_CAP = 400;            // 进回执的日志行上限；超限计数入回执（作业本体不受影响）
+    const JOB_VALUE_CAP = 200;          // 返回值渲染行上限；超限落 outbox 给 read 全量路径
+    let planHintAt = 0;                 // composeReceipt：多步改动 → 建议计划模式（冷却戳）
+    const PLAN_HINT_COOLDOWN_MS = 300000;
+
+    function clampWaitMs(flags) {
+        const raw = Number(flags && flags.timeout);
+        if (!raw || raw < 0 || isNaN(raw)) return JOB_WAIT_DEFAULT_MS;
+        return Math.min(Math.floor(raw), JOB_WAIT_MAX_MS);
+    }
+    function delay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+    function secsOf(job) {
+        const ms = (job.ended || Date.now()) - job.started;
+        return Math.round(ms / 100) / 10;
+    }
+    function renderValue(v) {
+        if (v === undefined) return [];
+        if (v === null) return ['null'];
+        if (typeof v === 'string') return v.split('\n');
+        if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
+        try { return JSON.stringify(v, null, 2).split('\n'); } catch (e) { return String(v).split('\n'); }
+    }
+    function capValueLines(job) {
+        const all = renderValue(job.value);
+        if (all.length <= JOB_VALUE_CAP) return all;
+        const sp = spillText('job-' + job.id + '-ret', all.join('\n'));
+        const head = all.slice(0, JOB_VALUE_CAP);
+        head.push('… 返回值超上限截断 ' + (all.length - JOB_VALUE_CAP) + ' 行'
+            + (sp ? '（全量：read ' + sp + '）' : ''));
+        return head;
+    }
+    function jobLog(job, line) {
+        if (job.logs.length < JOB_LOG_CAP) job.logs.push(line);
+        else job.logOverflow++;
+    }
+    function jobGuard(job) {
+        if (job.killRequested) throw new Error('作业 ' + job.id + ' 已被 kill 终止');
+        if (job.timedOut) throw new Error('作业 ' + job.id + ' 已超时（协作式中断）');
+    }
+    function makeJob(path, cwd) {
+        jobSeq++;
+        const job = {
+            id: 'j' + jobSeq, path: path, cwd: cwd || '/',
+            state: 'running', started: Date.now(), ended: 0,
+            logs: [], logOverflow: 0, changes: [], value: undefined,
+            error: null, timedOut: false, killRequested: false, done: null
+        };
+        jobStore.set(job.id, job);
+        return job;
+    }
+
+    /* 脚本可见的 dsw API：全部走 VirtualFS 正门 —— 内容漏斗（hash）、撤销批次、
+     * 内部区只读的口径与命令层完全一致，脚本不能借 API 绕过任何闸门。 */
+    function makeScriptApi(job) {
+        function abs(p) {
+            const v = VirtualFS.validatePath(resolvePathArg(String(p == null ? '' : p), job.cwd));
+            if (!v.ok) throw new Error('路径非法：' + p + '（' + v.reason + '）');
+            return v.path;
+        }
+        function denySys(p) {
+            if (VirtualFS.isInternal(p)) throw new Error('内部区只读（脚本同样只读）：' + p);
+        }
+        const api = {
+            cwd: function () { return job.cwd; },
+            read: function (p) {
+                jobGuard(job);
+                const dst = abs(p);
+                const r = VirtualFS.readRaw(dst);
+                if (!r || !r.ok) throw new Error('read 失败：' + dst + (r && r.error ? '（' + r.error + '）' : ''));
+                return String(r.content == null ? '' : r.content);
+            },
+            write: function (p, text) {
+                jobGuard(job);
+                const dst = abs(p); denySys(dst);
+                const r = VirtualFS.write(dst, text == null ? '' : String(text), {});
+                if (!r || !r.ok) throw new Error('write 失败：' + dst + (r && r.error ? '（' + r.error + '）' : ''));
+                job.changes.push(dst);
+                return dst;
+            },
+            append: function (p, text) {
+                jobGuard(job);
+                const dst = abs(p); denySys(dst);
+                const r = VirtualFS.append(dst, text == null ? '' : String(text), {});
+                if (!r || !r.ok) throw new Error('append 失败：' + dst + (r && r.error ? '（' + r.error + '）' : ''));
+                job.changes.push(dst);
+                return dst;
+            },
+            remove: function (p, opts) {
+                jobGuard(job);
+                const dst = abs(p); denySys(dst);
+                const r = VirtualFS.delete(dst, { recursive: !!(opts && opts.recursive) });
+                if (!r || !r.ok) throw new Error('remove 失败：' + dst + (r && r.error ? '（' + r.error + '）' : ''));
+                job.changes.push(dst);
+                return dst;
+            },
+            exists: function (p) { jobGuard(job); return !!VirtualFS.resolve(abs(p)); },
+            list: function (p) {
+                jobGuard(job);
+                const r = VirtualFS.list(abs(p), {});
+                if (!r || !r.ok) throw new Error('list 失败：' + p + (r && r.error ? '（' + r.error + '）' : ''));
+                return r.body || r.entries || [];
+            },
+            stat: function (p) {
+                jobGuard(job);
+                const r = VirtualFS.stat(abs(p));
+                if (!r || !r.ok) throw new Error('stat 失败：' + p);
+                return r;
+            },
+            /* 有界并行 map：大步慢跑的并行原语。worker 逐个让出，超时/kill 在此检查。 */
+            pool: function (items, n, fn) {
+                jobGuard(job);
+                const list = Array.isArray(items) ? items : [];
+                if (typeof fn !== 'function') throw new Error('dsw.pool(items, n, fn)：fn 必须是函数');
+                const limit = Math.max(1, Math.min(Number(n) || 4, 16));
+                const out = new Array(list.length);
+                let cursor = 0;
+                const step = function () {
+                    if (cursor >= list.length) return Promise.resolve();
+                    const idx = cursor++;
+                    jobGuard(job);
+                    return Promise.resolve()
+                        .then(function () { return fn(list[idx], idx); })
+                        .then(function (v) { out[idx] = v; return step(); });
+                };
+                const workers = [];
+                for (let k = 0; k < Math.min(limit, list.length); k++) workers.push(step());
+                return Promise.all(workers).then(function () { return out; });
+            },
+            each: function (items, fn) { return api.pool(items, 4, fn); },
+            pause: function (ms) {
+                jobGuard(job);
+                const t = Math.max(0, Number(ms) || 0);
+                return delay(t).then(function () { jobGuard(job); });
+            },
+            log: function () {
+                jobLog(job, Array.prototype.map.call(arguments, function (x) {
+                    if (typeof x === 'string') return x;
+                    try { return JSON.stringify(x); } catch (e) { return String(x); }
+                }).join(' '));
+            }
+        };
+        return api;
+    }
+    function makeJobConsole(job) {
+        const mk = function (level) {
+            return function () {
+                const txt = Array.prototype.map.call(arguments, function (x) {
+                    if (typeof x === 'string') return x;
+                    try { return JSON.stringify(x); } catch (e) { return String(x); }
+                }).join(' ');
+                jobLog(job, (level ? level + ': ' : '') + txt);
+            };
+        };
+        return { log: mk(''), info: mk('info'), warn: mk('warn'), error: mk('error'), debug: mk('debug') };
+    }
+
+    function runJob(job, source) {
+        const api = makeScriptApi(job);
+        const con = makeJobConsole(job);
+        let fn;
+        try {
+            fn = new Function('dsw', 'console',
+                '"use strict";\nreturn (async function () {\n' + String(source) + '\n})();');   // 顶层 await 支持
+        } catch (e) {
+            job.state = 'failed'; job.ended = Date.now();
+            job.error = '脚本编译失败：' + (e && e.message ? e.message : String(e));
+            job.done = Promise.resolve(job);
+            return job;
+        }
+        let started;
+        try {
+            started = Promise.resolve(fn(api, con));
+        } catch (e) {
+            job.state = 'failed'; job.ended = Date.now();
+            job.error = '脚本执行失败：' + (e && e.message ? e.message : String(e));
+            job.done = Promise.resolve(job);
+            return job;
+        }
+        job.done = started.then(function (v) {
+            if (job.killRequested) job.state = 'killed';
+            else { job.state = 'done'; job.value = v; }
+            job.ended = Date.now();
+            return job;
+        }, function (e) {
+            job.state = job.killRequested ? 'killed' : (job.timedOut ? 'timeout' : 'failed');
+            job.error = e && e.message ? e.message : String(e);
+            job.ended = Date.now();
+            return job;
+        });
+        return job;
+    }
+
+    /* 等待窗口：真实异步（页面保持响应）；窗口过了作业继续在后台跑，
+     * 已产出的日志照常带回执 —— 绝不吞进度（静默次数 0）。 */
+    async function waitJobsCore(arr, windowMs) {
+        const all = Promise.all(arr.map(function (j) { return j.done || Promise.resolve(j); }));
+        let allDone = false;
+        all.then(function () { allDone = true; }, function () { allDone = true; });
+        let remaining = Math.max(0, windowMs);
+        while (!allDone && remaining > 0) {
+            const step = Math.min(75, remaining);
+            await delay(step);
+            remaining -= step;
+        }
+        if (!allDone) for (const j of arr) if (j.state === 'running') j.timedOut = true;
+        return allDone;
+    }
+    function jobStateText(job) {
+        const extra = job.logOverflow ? '（日志超限 +' + job.logOverflow + '）' : '';
+        return job.id + ' ' + job.state + ' ' + secsOf(job) + 's 日志' + job.logs.length + '行' + extra;
+    }
+    function jobBodyLines(job) {
+        const L = [];
+        L.push('— ' + jobStateText(job) + (job.state === 'running' ? '' : ' ' + job.path) + ' —');
+        for (const line of job.logs) L.push(line);
+        if (job.logOverflow) L.push('… +' + job.logOverflow + ' 行日志超上限未入回执（缩小输出或改写文件再 read）');
+        if (job.state === 'failed' || job.state === 'timeout') {
+            L.push('✗ ' + (job.error || (job.state === 'timeout' ? '超时' : '失败')));
+        }
+        if (job.state === 'done') {
+            const val = capValueLines(job);
+            if (val.length) {
+                L.push('— ' + job.id + ' 返回值 —');
+                for (const v of val) L.push(v);
+            }
+        }
+        return L;
+    }
+    function execReceiptOf(job, path) {
+        const running = job.state === 'running';
+        const bad = job.state === 'failed' || job.state === 'timeout';
+        const summary = running
+            ? (job.id + ' 运行中（已 ' + secsOf(job) + 's，日志 ' + job.logs.length + ' 行）→ wait ' + job.id + ' timeout=180000 续取结果')
+            : (jobStateText(job) + (job.changes.length ? '，改了 ' + job.changes.length + ' 个路径' : ''));
+        if (bad) {
+            return {
+                ok: false, op: 'exec', path: path, changes: [],
+                error: '作业 ' + job.id + ' ' + (job.state === 'timeout' ? '超时' : '失败') + '：' + (job.error || '未知错误'),
+                detail: [job.id + ' 最后输出：'].concat(job.logs.slice(-5)),
+                body: jobBodyLines(job)
+            };
+        }
+        return {
+            ok: true, op: 'exec', path: path,
+            changes: running ? [] : job.changes.slice(),
+            summary: summary,
+            body: jobBodyLines(job)
+        };
+    }
+    async function doExec(cmd, path, ctx) {
+        const v = VirtualFS.validatePath(path);
+        if (!v.ok) return fail(cmd, path, v.reason, { kind: 'path' });
+        const node = VirtualFS.resolve(v.path);
+        if (!node) return fail(cmd, path, path + ' 不存在', { candidates: VirtualFS.similarPaths(path, 3), kind: 'path' });
+        if (node.type !== 'file') {
+            return fail(cmd, path, 'exec 需要脚本文件', { kind: 'path', syntax: 'exec /路径', fix: '先 write ' + v.path + ' <<< 脚本 <<<，再 exec ' + v.path });
+        }
+        const raw = VirtualFS.readRaw(v.path);
+        if (!raw || !raw.ok) return fail(cmd, path, '读脚本失败：' + ((raw && raw.error) || v.path), { kind: 'path' });
+        const job = makeJob(v.path, (ctx && ctx.cwd) || '/');
+        runJob(job, String(raw.content == null ? '' : raw.content));
+        // 墙钟超时标记（协作式）：纯同步死循环按协议无法抢占，让出点负责中止
+        setTimeout(function () {
+            if (job.state === 'running') job.timedOut = true;
+        }, clampWaitMs(cmd.flags));
+        if (cmd.flags && cmd.flags.nowait) {
+            return {
+                ok: true, op: 'exec', path: v.path, changes: [],
+                summary: job.id + ' 已后台并行启动 ' + v.path + ' → wait ' + job.id + ' / jobs（同批可再开多个 exec nowait，最后一条 wait 合并取回）'
+            };
+        }
+        await waitJobsCore([job], clampWaitMs(cmd.flags));
+        return execReceiptOf(job, v.path);
+    }
+    async function doWait(cmd, path) {
+        const ids = [];
+        if (path) ids.push(String(path).trim());
+        if (cmd.args) for (const a of cmd.args) if (a) ids.push(String(a).trim());
+        if (!ids.length) {
+            return fail(cmd, '', 'wait 需要作业号', { kind: 'syntax', syntax: 'wait <作业号>', fix: 'jobs 看有哪些作业，然后 wait j1' });
+        }
+        const arr = [];
+        const missing = [];
+        for (const id of ids) { const j = jobStore.get(id); if (j) arr.push(j); else missing.push(id); }
+        if (!arr.length) {
+            return fail(cmd, ids.join(' '), '没有这些作业号：' + missing.join('、'), { kind: 'syntax', syntax: 'jobs', fix: 'jobs 看列表，作业号形如 j1' });
+        }
+        await waitJobsCore(arr, clampWaitMs(cmd.flags));
+        const body = [];
+        for (const j of arr) body.push.apply(body, jobBodyLines(j));
+        if (missing.length) body.push('ℹ 未找到作业号：' + missing.join('、') + '（jobs 看列表）');
+        const running = arr.filter(function (j) { return j.state === 'running'; });
+        const bad = arr.filter(function (j) { return j.state === 'failed' || j.state === 'timeout'; });
+        if (bad.length) {
+            return {
+                ok: false, op: 'wait', path: arr[0].path || '', changes: [],
+                error: '作业 ' + bad.map(function (j) { return j.id; }).join('、') + ' '
+                    + (bad[0].state === 'timeout' ? '超时' : '失败') + '：' + (bad[0].error || '未知错误')
+                    + (running.length ? '（另有 ' + running.length + ' 个仍在运行，jobs / wait 继续跟）' : ''),
+                body: body
+            };
+        }
+        const summary = running.length
+            ? ('仍在运行 ' + running.map(function (j) { return jobStateText(j); }).join('；')
+                + '（本次已等 ' + (clampWaitMs(cmd.flags) / 1000) + 's，再 wait 取回）')
+            : ('wait 完成：' + arr.map(function (j) { return jobStateText(j); }).join('；')
+                + (arr.some(function (j) { return j.changes.length; })
+                    ? '，合计改了 ' + arr.reduce(function (n, j) { return n + j.changes.length; }, 0) + ' 个路径' : ''));
+        return { ok: true, op: 'wait', path: arr[0].path || '', changes: [], summary: summary, body: body };
+    }
+    function doJobs(cmd) {
+        const arr = [];
+        jobStore.forEach(function (j) { arr.push(j); });
+        if (!arr.length) {
+            return { ok: true, op: 'jobs', path: '', summary: '没有脚本作业', body: ['（还没有作业：exec /路径 跑一个；写法 help exec）'] };
+        }
+        let running = 0;
+        for (const j of arr) if (j.state === 'running') running++;
+        const body = arr.map(function (j) {
+            return jobStateText(j) + '  ' + j.path + (j.changes.length ? '（改 ' + j.changes.length + ' 个路径）' : '');
+        });
+        return { ok: true, op: 'jobs', path: '', summary: arr.length + ' 个作业（' + running + ' 运行中）', body: body };
+    }
+    function doKill(cmd, path) {
+        const id = String(path || '').trim();
+        const j = jobStore.get(id);
+        if (!j) {
+            return fail(cmd, id, '没有作业 ' + (id || '（未给作业号）'), { kind: 'syntax', syntax: 'kill <作业号>', fix: 'jobs 看列表，kill j1' });
+        }
+        if (j.state !== 'running') {
+            return { ok: true, op: 'kill', path: j.path, changes: [], summary: j.id + ' 已结束（' + j.state + '），无需终止', body: jobBodyLines(j) };
+        }
+        j.killRequested = true;
+        return {
+            ok: true, op: 'kill', path: j.path, changes: [],
+            summary: j.id + ' 已请求终止（协作式：下一次 dsw 调用/让出点停下）→ wait ' + j.id + ' 确认'
+        };
+    }
     function doExpect(cmd, path) {
         const text = cmd.args && cmd.args.length ? cmd.args.join(' ') : null;
         if (!text) return fail(cmd, path, 'expect 缺少要断言的文本', { kind: 'syntax', syntax: 'expect /路径 "必须出现的文本"', fix: 'expect ' + path + ' "export const add"' });
@@ -8109,7 +8482,7 @@
     // 一批命令执行：opts.guard(cmd, cwd, ctx) 是「逐条策略闸门」（计划模式 / 内部区只读），
     //   返回 null = 放行；返回一个失败结果 = 这条被拒（只拒这一条，同批其它命令照常执行）。
     //   dry 按「域」分段：写了 dry 的那一段执行完立即回滚，同一条消息里其它域的写入不受影响。
-    function executeBatch(cmds, opts) {
+    async function executeBatch(cmds, opts) {
         opts = opts || {};
         const ctx = {
             cwd: opts.cwd || '/',
@@ -8211,6 +8584,8 @@
                 let r;
                 try {
                     r = executeCmd(cmd, ctx);
+                    // 2.15.0：exec（默认等待窗口）与 wait 是异步命令，作业结束再继续本批
+                    if (r && typeof r.then === 'function') r = await r;
                 } catch (e) {
                     errlog('executeCmd threw:', e);
                     if (spBase >= 0) while (VirtualFS.batchDepth() > spBase) VirtualFS.rollbackBatch();
@@ -8523,7 +8898,7 @@
 
         const failures = results.filter(function (r) { return !r.ok; });
         const bodies = [];
-        for (const r of results) if (r.ok && r.body && r.body.length) bodies.push({ r: r, body: r.body });
+        for (const r of results) if (r.body && r.body.length) bodies.push({ r: r, body: r.body });
 
         // —— 稳态（连续 ≥2 轮无错、无自愈、本轮没有内容载荷、且没有 dry）：1~3 行 ——
         //   有 dry 的批次一律走展开式：压缩态只列路径，会把「只校验没写入」压成看起来像写成功的一行。
@@ -8587,6 +8962,15 @@
         const tail = structureChanged ? buildWorkSetTail(tailPathsOf(results), opts.cwd) : [];
 
         const hints = [];
+        // 2.15.0：写了一大把路径却没开计划 → 提醒一次（5 分钟冷却，不刷屏）
+        try {
+            const mutN = results.filter(function (x) { return x.ok && x.changes && x.changes.length; }).length;
+            const planOn = !!(typeof DSW !== 'undefined' && DSW && DSW.plan && DSW.plan.active && DSW.plan.active());
+            if (mutN >= 3 && !planOn && (Date.now() - planHintAt) >= PLAN_HINT_COOLDOWN_MS) {
+                planHintAt = Date.now();
+                hints.push('◀ 本轮写了 ' + mutN + ' 个路径：步骤多/流程复杂的任务默认先 `plan on` + `plan add` 列清单照单推进');
+            }
+        } catch (e) {}
         // 病因诊断优先于「这一条怎么改」：先讲清楚为什么，再给单条写法的纠正
         if (opts.diagnosis) hints.push('◀ 病因诊断：' + opts.diagnosis);
         // 错点补课：这一轮踩的坑在哪一节手册里（一行、带冷却）—— 在最需要时只给那一条
@@ -8765,6 +9149,7 @@
             '| 读 | `read` `grep` `find` `diff` `list` `tree` `stat` `help` | read 读文件/列目录/read #锚点；grep 按内容全容器检索；find 按文件名/路径找；diff 比较差异；list 列目录；tree 目录树；stat 统计；help 查用法 |',
             '| 写 | `write` `append` `edit` `insert` `rmline` `apply` `patch` `merge` `split` `sort` `mkdir` `move` `copy` `delete` `undo` `redo` `restore` `upload` | write 覆盖写；append 追加；edit 替换；insert 插入正文；rmline 删行区间；apply 多文件写入；patch 补丁；merge 按序拼接；split 切片；sort 排序行；mkdir 建目录；move 移动/重命名；copy 复制；delete 删除；undo 撤销；redo 重做；restore 回收站/恢复；upload 生成附件（发给你读） |',
             '| 控制 | `cd` `expect` | cd 切换工作目录；expect 断言，失败 PARTIAL |',
+            '| 脚本 | `exec` `wait` `jobs` `kill` | exec 跑容器脚本（dsw.* 读写、pool 并行、nowait 后台）；wait 一次等多个作业取回结果；jobs 列作业；kill 协作式终止 |',
             '| 计划 | `plan` | 计划模式与条目：on/off/list/add/edit/note/done/doing/todo/del/clear |',
             '',
             '命令必须查 `help`。不带参数按类别列命令。带参数给用法与坑。',
@@ -8785,7 +9170,16 @@
             '- `sort /list.txt uniq`：就地排序 + 去重。`numeric` 按数值。`reverse` 反向。',
             '- glob 批量：`delete /tmp/*.txt force`、`copy /src/*.md /out`、`move /src/*.txt /out`。整批原子。内部区拒绝。glob 删除必须 `force`，命中目录必须 `recursive`。',
             '- `upload /src` 或 `upload /a.js /b.js`：打成 zip 附件发出 —— 附件是**发给你读的**：要了解文件的全部内容就直接 upload 它（别用 read 拉全文）；看全项目先用 `upload /项目目录` 一次拿全。',
-            '- 一律并批：`apply`、`edit /目录`、`grep -l` + 令牌、glob、一轮多条命令。',
+            '- 一律并批：`apply`、`edit /目录`、`grep -l` + 令牌、glob、一轮多条命令；工作方式是**大步慢跑** —— 步子大（一轮一批、能并行就 exec 跑脚本），脚步稳（计划在先、wait 汇总取回）。',
+            '',
+            '### 3.2 并行脚本作业（大步慢跑的执行底座）',
+            '',
+            '- 脚本就是容器里的普通文件：先 `write /jobs/build.js <<< 脚本 <<<`（或 apply），再 `exec /jobs/build.js`。脚本体是 JS，可顶层 `await`。',
+            '- 脚本环境注入 `dsw` 与 `console`：`dsw.read(p)` → 文本；`dsw.write(p, t)` / `dsw.append(p, t)`（内部区只读，越权抛错）；`dsw.remove(p, {recursive:1})`；`dsw.list(p)` → 行数组；`dsw.stat(p)`；`dsw.exists(p)`；`dsw.pool(items, n, fn)` 有界并行 map（n ≤ 16）；`dsw.each(items, fn)` = 4 路并行；`dsw.pause(ms)` 让出；`dsw.log(...)`；`console.log` 等价进作业日志；脚本最后 `return` 的值随回执交出。',
+            '- 并行配方（降交互）：同一批里多条 `exec /a.js nowait`、`exec /b.js nowait` 开跑，末尾 `wait j1 j2` 把日志与返回值合进**一条**回执 —— 开工与收结果各占一次交互。',
+            '- `exec` 默认等到结束再回执（`timeout=毫秒`，默认 60000）；窗口过了回执给「已产出日志 + 作业号」，用 `wait jN timeout=180000` 续取；`nowait` 立即返回作业号 `jN`。',
+            '- `jobs` 列全部作业；`kill j1` 请求终止。终止与超时都是**协作式**：在下一次 `dsw.*` 调用或 pool/pause 让出点生效；纯同步长循环停不住，长计算请用 `dsw.pool` 分片让出。',
+            '- `exec` 必须写执行域；脚本写到一半失败按单命令存点回滚（只回滚本条，同批其它命令不受影响）。',
             '',
             '## 4. 两个令牌',
             '',
@@ -8854,7 +9248,7 @@
             '## 7. 权限',
             '',
             '闸门顺序固定，先命中的决定回执：',
-            '1. 危险命令必须写在执行域：`delete`（单个文件也算）、`upload`、`restore`、`undo`、`redo`。',
+            '1. 危险命令必须写在执行域：`delete`（单个文件也算）、`upload`、`restore`、`undo`、`redo`、`exec`。',
             '2. 内部区只读：`/__sys/*`、`/__trash/*`。',
             '',
             '系统区与回收站：`read` / `grep` / `list` / `tree` / `stat` 可读。`write` / `append` / `edit` / `patch` / `mkdir` / `move` / `copy` / `delete` 直接 `DENY`。只拒那一条，同批用户目录写照常执行。',
@@ -8865,7 +9259,7 @@
             '',
             '删除与回收站：',
             '- 非空目录删除必须加 `recursive`。',
-            '- 删除（含单个文件）、`upload`、`restore`、`undo/redo` 必须写执行域。',
+            '- 删除（含单个文件）、`upload`、`restore`、`undo/redo`、`exec` 必须写执行域。',
             '- 删除进回收站。`restore list` 看序号。`restore 序号` / `restore /原路径` / `restore <备份名>` 还原。`restore purge` 清空。',
             '- `restore list` 每行末尾是 `/__trash/<备份名>`。`list /__trash` 同一份事实。`read /__trash/<备份名>` 看内容。回收站只读。',
             '- 恢复成功的条目立刻离开回收站。',
@@ -8889,6 +9283,7 @@
             '| `plan del <序号或文字>` / `plan clear` | 删除一条 / 清空 |',
             '| `plan off` | 关闭计划模式 |',
             '',
+            '- **默认开计划**：要求多、步骤多、流程复杂或顺序严格的任务，开头就 `plan on` + `plan add` 把步骤列清，照单推进、每完成一步 `plan done last`；不必等用户提醒。',
             '- 计划必须只用 `plan` 命令维护。禁止裸写 `/__sys/plan.md`。',
             '- 计划模式开启后，回执和用户消息后附带最新状态。状态变化实时反映到界面。',
             '- 计划模式不限制写权限。',
@@ -8925,6 +9320,7 @@
             '搬       mkdir /d   move /a /b   copy /a /b   delete /f [recursive]   copy /src /dst 10-20',
             'glob     delete /tmp/*.txt force   copy /src/*.md /out   move /src/*.txt /out',
             '附件     upload /f（单文件·全文发给你读）   upload /目录   upload /a /b（打成 zip）    §3.1',
+            '脚本     exec /jobs/x.js [nowait] [timeout=]   wait j1 j2 [timeout=]   jobs   kill j1    §3.2',
             '找       grep /路径 "词" [-i -e -v -l -c ext= ctx= limit=]（-n 不必写） §5',
             '         find /路径 "*.js" [ext= depth= dirs sort=mtime since=]   diff /a /b',
             '看       list /d   tree /   stat /f',
@@ -8942,7 +9338,7 @@
      * 这份提示词会**单独使用**（面板「复制首发提示」、或关掉「注入手册全文」时只发它），
      * 所以它必须自己站得住：域怎么写、正文怎么给、令牌怎么用、收尾符怎么用、不会就去 help。
      * 具体命令一律不背 —— 需要时 `help` / `help <命令>` 现查，手册按节取，不会漂。
-     * 行数：25 行（旧自检 _p6_manual_selftest.js 的 ≤15 行约束随新版文本作废），
+     * 行数：29 行（旧自检 _p6_manual_selftest.js 的 ≤15 行约束随新版文本作废），
      * 加内容请并进现有行。 */
     function buildBootstrapPrompt() {
         return [
@@ -8965,6 +9361,10 @@
             '批量操作必须并批：写多个文件必须用 `apply`；全目录替换必须用 `edit /目录 "旧" "新"`；批量查找文件名必须用 glob；批量查找内容必须用 `grep -l`；看全项目必须用 `upload /目录`；通读文件用 `upload /f`（附件直接发给你读）。`plan add X` 与 `plan done last` 必须同批写。',
             '',
             '要了解文件的**全部内容**，一律 `upload /路径` 把文件作为附件发出 —— 附件就是发给你读的（用户打不开也不需要看）；`read` 只用于取片段与行号定位。',
+            '',
+            '大步慢跑：一轮把能做完的做完 —— 批量命令并批发；重复加工写脚本 `exec` 加 `nowait` 同批并行开跑，末尾一条 `wait j1 j2` 把日志与结果一次取回，绝不一轮一条来回。',
+            '',
+            '步骤多、要求多、流程复杂或顺序严格的任务：默认先 `plan on` + `plan add` 把步骤列清，照单推进、每完成一步 `plan done last`；脚本用法 `help exec`。',
             '',
             '回执令牌必须直接当路径用：`#a3f` 指行，`@p1` 指文件。AUTO 回执必带 diff。',
             '',
@@ -9098,7 +9498,9 @@
         '围栏内是字面量，正文不必再自己包围栏；特殊字符多就 `write /f base64`。',
         '每条回复的最后一行写 `◆`；任务全部跑完或要用户介入，改写 `■ 原因`。',
         '定位用令牌 —— `#a3f` 指某一行、`@p1` 指某个文件，直接当路径用。',
-        '少来交互 —— 批量靠 apply / glob / grep -l；要看文件全部内容就 `upload /f`，附件直接发给你读，`upload /目录` 一次打包看全项目。'
+        '少来交互 —— 批量靠 apply / glob / grep -l；要看文件全部内容就 `upload /f`，附件直接发给你读，`upload /目录` 一次打包看全项目。',
+        '大步慢跑 —— 一轮一批收工；重复加工写脚本 `exec /路径 nowait` 并行开跑，`wait j1 j2` 一次取回结果。',
+        '步骤多、要求严的任务先 `plan on` 列清单，照单推进、逐条 done。'
     ];
     let microLessonStep = 0;
     function microLessonText(maxLessons) {
@@ -11047,7 +11449,7 @@
         return { hit: false, line: 0 };
     }
 
-    function runMessage(fullText, parsed, opts) {
+    async function runMessage(fullText, parsed, opts) {
         opts = opts || {};
         const startedAt = Date.now();
         const decision = DomainGate.decide(parsed);
@@ -11117,7 +11519,7 @@
             ? parsed.domains.map(function (d) { return d.rawText || ''; }).join('\n')
             : fullText;
         const setType = cmds.some(function (c) {
-            return c.op === 'write' || c.op === 'edit' || c.op === 'patch' || planIsMutating(c);
+            return c.op === 'write' || c.op === 'edit' || c.op === 'patch' || c.op === 'exec' || planIsMutating(c);
         });
         const key = idempotencyKey(domainText, cwd);
         if (setType && !force && isDomain) {
@@ -11205,7 +11607,7 @@
                 ? internalDenied(cmd, cwd) : null;
         }
 
-        const batch = executeBatch(cmds, { cwd: cwd, atomic: atomic, dry: dry, isDomain: isDomain, guard: policyDeny });
+        const batch = await executeBatch(cmds, { cwd: cwd, atomic: atomic, dry: dry, isDomain: isDomain, guard: policyDeny });
         cwd = batch.cwd || cwd;
 
         const results = batch.results;
@@ -11247,14 +11649,31 @@
         };
     }
 
+    // 2.15.0：runMessage 已是异步（exec / wait 会等脚本作业），等待窗口里进来的新消息
+    // 改为**排队按序处理** —— 旧的 re-enter 直接 skip 会把一整轮消息吞掉（硬约束 3：静默次数必须为 0）。
+    const msgQueue = [];
     function handleMessage(fullText, parsed) {
-        if (handling) { warn('handleMessage re-entered, skip'); return; }
+        msgQueue.push([fullText, parsed]);
+        drainMessageQueue();
+    }
+    async function drainMessageQueue() {
+        if (handling) return;
         handling = true;
+        try {
+            let item;
+            while ((item = msgQueue.shift())) await processMessage(item[0], item[1]);
+        } catch (e) {
+            errlog('message queue drain threw:', e);
+        } finally {
+            handling = false;
+        }
+    }
+    async function processMessage(fullText, parsed) {
         try { ioNoteIn(fullText); } catch (e) {}    // 底部状态栏：入站字符（按文本指纹去重）
         // #6 给这一轮入队的回执打上轮次戳：终止符暂停时只保留「本轮回执」，其余按「本任务旧待回传」丢弃
         try { setOutboxRound(++roundSeq); } catch (e) {}
         try {
-            const r = runMessage(fullText, parsed);
+            const r = await runMessage(fullText, parsed);
             if (r.action === 'none') {
                 if (r.decision.hint) pushLog('未执行：' + r.decision.hint, 'warn');
                 if (r.receipt) enqueueOutbound(r.receipt, 'feedback');   // 域识别失败也要让 AI 知道
@@ -11295,8 +11714,6 @@
             try {
                 enqueueOutbound(composeNoop('内部异常：' + (e && e.message ? e.message : String(e)), '这一批没有执行，请原样重发'), 'feedback');
             } catch (e2) {}
-        } finally {
-            handling = false;
         }
     }
 
