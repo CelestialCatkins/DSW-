@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.14.7
+// @version      2.14.8
 // @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压；2.13.6 首次运行的打开顺序收紧为硬保证：**首屏绝不自动展开工作区、也绝不自动弹引导层**，只有用户点悬浮球 → 面板打开 → 引导层才跟着打开（createUI 里显式 closePanel 一次，2.13.4 那句「点球打开工作区」继续挂在球旁）；补掉延迟 120ms 里用户又收回面板时引导层仍盖上来的竞态；「内容存在哪里」这一栏在**设置之后、完成之前**加一根旋转加载动画（引导层与设置页共用同一段 HTML 与同一个忙标志，搬家/授权要几百毫秒到几秒，没有它用户会以为按钮没生效而连点）；切 gm/opfs、绑定、授权、解绑四个动作合并到 runMediaOp 一条路径 —— 引导层里切介质以前完全没上锁（连点两下就是两次并发搬家，内容会分裂）、showDirectoryPicker 同步抛错时忙标志永远清不掉导致按钮永久失效，这两类都已修掉；删掉与 toggleCfg 重复的 applyCfgSideEffects 与无人调用的 setFolderNameForTest；2.14.0 计划模式重新定位：**只负责展示与上下文同步，不再是权限闸门**——开计划时 AI 的 write/edit/delete/mkdir 全部照常（原来「计划模式：写操作已拦截」那一层连同 planDenied 一起删掉了；系统区只读是另一回事，仍照拦，而且现在报的是它自己的理由、不再被计划模式的理由盖住）；**AI 可自主 plan on / plan off**，不再需要用户确认；计划窗口从面板头下方**改为吸附在宿主输入框上方**（挂到 root 而不是 panel 里——panel 带 transform，会成为 fixed 的包含块，放在里面面板一收计划条就跟着跑），默认折叠且只占左侧半宽、右侧半宽留空给宿主页面的「向下滚动」按钮（容器 pointer-events:none，只有 .pin 吃点击），展开时占满整行；条目补上**更新时间与备注**（按条目文字存一份会话级元数据，不污染给 AI 读的 plan.md），新增 `plan edit <定位> <新内容>` 与 `plan note <定位> <备注>`；状态标为已完成时播一道**划线动画**（未完成/进行中不划）——这里踩到一个坑：一次改动会重画两遍（planTouched → renderPlanBar + refreshUI → render），单纯用「见过就不画」会让动画一帧都没画就没了，改成转换时把条目挂进一个短窗口，同一次改动的所有重画都保留动画、窗口过后不再重播；**用户每发一条消息都会自动附上最新计划状态**（新对话首条的协议注入路径也一并附上；与回执那条通道共用「自动同步计划状态」一个开关），所以 AI 与用户看到的始终是同一份、下一轮就是最新的；2.14.1 修引导层「点一下开关就回到最上方」：refreshOnboard 整块重建 innerHTML 时把 .ob-b 连同它的 scrollTop 一起销毁了（开关、配色、明暗、介质按钮全部中招），现在重画前记住位置、重画后还原；并降低**折叠态**计划条高度（49px → 38px）：折叠时收掉 3px 进度条（x/y 与百分比已表达进度）、标题行收紧到 36px、徽标缩小；触控区不跟着缩（项目硬约束 ≥44px），用 .psum::after 往下补 8px 透明热区；2.14.2 首次运行点「完成」不再自动发送系统提示 —— 以前引导层收尾直接调 handleAction("inject") 把提示词+手册排进出站队列，于是用户刚看完引导层、一个字没打，聊天框里就凭空多出一条机器人消息。现在点完成只关层、记已看过，并提示「新对话发第一条消息时会自动附带协议说明」；协议信息仍在新对话里用户第一次点发送时与那句话合成**同一条**发出（用户不输入就永远不发）；2.14.3 引导面板的节奏器开关改名为「节奏器等待」并改准说明：原来叫「节奏器 · 发太快时自动降速」，一是与设置页同一个开关两个叫法，二是节奏器并不「降速」——降速的是用户自己，容器做的是**发太快时先等一等**，说清了才不会被误解成影响 AI 回答速度；2.14.4 DeepSeek 加固：思考区（.ds-think-content 一类）整棵子树不再进正文 —— R1「深度思考」里写的 ```dsw 草稿不会被当命令执行（答案正文 ds-assistant-message-main-content 照旧取全）；页面正在重挂输入区 / 输入区不可见时，执行命令与点发送都先等一等（有上限，超时放行并留痕，随后 60s 冷却），不在重渲染的中间态上盲推；非 DeepSeek 平台闸门直通，行为与 2.14.3 一致；2.14.5 豆包适配（按豆包前端产物实测，证据快照见 _fixtures/doubao-evidence.txt）：消息正文认 data-testid="message_text_content"、用户气泡按 send-msg-bubble 类区分、输入框认 chat_input_input、发送键认 chat_input_send_button、「正在生成」认 chat_input_local_break_button（纯图标按钮，靠文案匹配原本抓不到，于是防打断与「等回复输出完」两道闸门在豆包上形同虚设）、思考区认 message_thinking/message_loading、附件认 upload-file-input（豆包现在能直接 upload 进聊天）；顺带把「平台声明的选择器」做成通用钩子（composerSelector / sendSelector / stopSelector / thinkingSelector），其它平台不声明就完全走原路，行为不变；2.14.7 提示词与手册定稿（精炼）/ atomic 禁用定稿：
+// 2.14.8 附件用途正名与全文取材走附件：附件是**发给 AI 读的**（用户打不开也不需要看）；系统提示词与手册新增硬规则——要了解文件的全部内容一律 `upload /路径` 把文件作为附件发给 AI 自己读，read 只用于片段与行号定位；upload 命令说明、交付回执文案、面板附件菜单、read 全文回执提示同步改口；read/回执按请求严格回传（去省略）并入本版；版本号升至 2.14.8
 // 首发提示词改为精炼版（你是 DSW 容器操作员），手册改为§1～§11 精炼文案；
 // atomic 改为整条消息 DENY（识别到即拒绝，不执行任何域），回执给固定改法；
 // 手册 §1 表格 atomic 改为「禁止使用；整批保真用 expect」，§2 告警条与 §11 对齐；
@@ -73,7 +74,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.14.7';
+    const VERSION = '2.14.8';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -3356,20 +3357,6 @@
         return out;
     }
 
-    function buildCtxHeadTail(lines) {
-        const n = lines.length;
-        const K = 3;
-        const out = [];
-        if (n <= 2 * K + 1) {
-            for (let i = 1; i <= n; i++) out.push('  ' + i + '| ' + String(lines[i - 1] == null ? '' : lines[i - 1]));
-            return out;
-        }
-        for (let i = 1; i <= K; i++) out.push('  ' + i + '| ' + String(lines[i - 1] == null ? '' : lines[i - 1]));
-        out.push('  ... 省略 ' + (n - 2 * K) + ' 行 ...');
-        for (let i = n - K + 1; i <= n; i++) out.push('  ' + i + '| ' + String(lines[i - 1] == null ? '' : lines[i - 1]));
-        return out;
-    }
-
     /* ------------------------- 邻近候选（错误即答案） ------------------------- */
 
     // 同目录 + 全树的近似路径候选（用于"路径不存在"）
@@ -5462,7 +5449,7 @@
         undo: { kind: 'write', desc: '撤销 N 步', example: 'undo 1' },
         redo: { kind: 'write', desc: '重做 N 步', example: 'redo 1' },
         restore: { kind: 'write', desc: '回收站 / 恢复', example: 'restore list' },
-        upload: { kind: 'write', desc: '生成附件（下载）', example: 'upload /dist/app.js' },
+        upload: { kind: 'write', desc: '生成附件（发给你读）', example: 'upload /dist/app.js' },
         grep: { kind: 'read', desc: '按内容全容器检索', example: 'grep /src "function "' },
         find: { kind: 'read', desc: '按文件名/路径找（glob：`*` `?` `**`）', example: 'find /src "*.js"' },
         diff: { kind: 'read', desc: '比较两个文件的差异', example: 'diff /a.js /b.js' },
@@ -5483,7 +5470,7 @@
     const COMMAND_HELP = {
         read: {
             syntax: 'read /路径 [行区间 | head=N | tail=N | -n | outline]  |  read #锚点 [N | -N]',
-            notes: ['read #锚点 读锚点行 ±3 行；read #锚点 20 读锚点行起往下共 20 行；read #锚点 -10 读锚点行起往上共 10 行', '长文件默认只给头尾并落盘全文；加 full（或 no-elide）一次给全，省一次二次读取', 'read <目录> 等价 list']
+            notes: ['read #锚点 读锚点行 ±3 行；read #锚点 20 读锚点行起往下共 20 行；read #锚点 -10 读锚点行起往上共 10 行', '按请求原样回传：不给范围回全文、给了范围回那一段，不省略、不砍头尾；通读整个文件建议改 upload（附件直接发给你）', 'read <目录> 等价 list']
         },
         write: {
             syntax: 'write /路径 → <<< → 内容 → <<<   |   write /路径 base64 → <<< → base64 文本 → <<<',
@@ -5532,7 +5519,7 @@
         cd: { syntax: 'cd /路径', notes: ['cwd 会影响相对路径；cd / 回根'] },
         expect: { syntax: 'expect /路径 "必须出现的文本"', notes: ['后置断言：失败 → 本批已写入的内容自动回滚'] },
         plan: { syntax: 'plan on|list|add <条目>|done|doing|todo <序号|last|文字>|del|clear', notes: ['last = 最后一条（可与 plan add 同批）', 'plan off 只有用户能退'] },
-        upload: { syntax: 'upload /路径  |  upload /目录  |  upload /a /b /c', notes: ['目录或多个路径 → 打成 zip 附件一次发出（平台无入口时回退下载）', '优先放进聊天附件，平台无入口时回退下载'] },
+        upload: { syntax: 'upload /路径  |  upload /目录  |  upload /a /b /c', notes: ['附件随消息发出，直接给你（AI）读 —— 要文件全部内容就 upload 它，别用 read 拉全文', '目录或多个路径 → 打成 zip 附件一次发出；平台无附件入口时回退下载'] },
         help: { syntax: 'help  |  help <命令>', notes: ['不带参数列出全部命令；带参数给该命令的用法与坑'] },
         mkdir: { syntax: 'mkdir /路径' },
         redo: { syntax: 'redo [N]' }
@@ -5609,7 +5596,7 @@
         numeric: 'numeric', 数字: 'numeric',
         count: 'count', c: 'count',
         head: 'head', tail: 'tail',
-        // 2.13.0：read /f full（或 no-elide）→ 不省略中段，一次读完，不必再去 outbox 二次读取
+        // full / no-elide 仍解析放行（历史写法兼容）；回传已默认严格不省略，二者语义等同默认
         full: 'full', 'no-elide': 'noElide', noelide: 'noElide', 全文: 'full', 完整: 'full',
         // --no-warn：关掉本条命令的正文体检告警（误报时用，不影响真实错误）
         'no-warn': 'noWarn', nowarn: 'noWarn', '不告警': 'noWarn',
@@ -5764,7 +5751,7 @@
     // 例：`list /d recursive` 以前既不递归也不报错（A10）；现在要么实现，要么回执标 ⚠ 说明已忽略。
     // 2.13.0：被忽略的开关不再只留一句 ⚠ 就按成功返回 —— 这类命令一律降为 PARTIAL（详见 executeCmd）。
     const COMMAND_FLAGS = {
-        // full / no-elide：长文件不再自动省略中段（省一次 outbox 二次读取）
+        // full / no-elide 保留放行（历史写法兼容）；回传已默认严格、不省略
         read: ['numbered', 'outline', 'lineRange', 'head', 'tail', 'full', 'noElide'],
         // sep 是「双段定界的自定义分隔符」，任何带定界正文的命令都可能用它（手册 §3.4）
         // base64：正文以 base64 传入（绕开 `<<<` 提前闭合 / markdown 吞正文）
@@ -6764,19 +6751,11 @@
             const withAnchor = annotateHits(r.path, r.lines);
             lines = withAnchor.map(function (h) { return h.anchor + ' ' + h.line + '| ' + h.text; });
         } else {
-            const all = String(r.raw).split('\n');
-            // 2.13.0 `full` / `no-elide`：默认只给头尾 + 一句「去 outbox 二次读」，
-            // 那多出来的一轮往返经常比直接给全文还贵。写了 full 就一次给全（不再落盘）。
-            const wantFull = !!((flags && flags.full) || (flags && flags.noElide));
-            if (all.length > 60 && !wantFull) {
-                lines = buildCtxHeadTail(all).map(function (l, i) { return l; });
-                // 14：只给头尾时，全文落盘（/__sys/outbox/，AI 只读区），回执里直接给 read 路径
-                const sp = spillText('read-' + r.path.replace(/[^\w.-]+/g, '_'), r.raw);
-                lines.push('(共 ' + r.totalLines + ' 行 / ' + fmtSize(r.size) + '；用 read ' + r.path + ' 1-80 分段读，'
-                    + '或 read ' + r.path + ' full 一次读全'
-                    + (sp ? '；全文已落盘：read ' + sp : '') + ')');
-            } else {
-                lines = all.map(function (l) { return l; });
+            // 严格按 AI 的意愿回传：请求给多少就原样回多少（full / no-elide 仍解析放行，历史写法兼容）
+            lines = String(r.raw).split('\n');
+            // 2.14.8：通读整文件的新硬规则见提示词/手册 —— 全文取材走 upload 附件（附件是发给 AI 读的）
+            if (r.totalLines > 60) {
+                lines.push('ℹ 全文 ' + r.totalLines + ' 行已按请求回传；要通读整个文件，建议改用 upload ' + r.path + '（附件直接发给你读）');
             }
         }
         const rangeNote = r.range ? (' L' + r.range[0] + (r.range[1] !== r.range[0] ? '-' + r.range[1] : '')) : '';
@@ -7941,7 +7920,7 @@
         try {
             if (typeof attachToComposer === 'function') {
                 const att = attachToComposer(zipName, blob, 'application/zip');
-                if (att && att.ok) deliv = { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + zipName + ' ' + sizeText + '，含 ' + list.length + ' 个文件 —— 点发送即可' };
+                if (att && att.ok) deliv = { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + zipName + ' ' + sizeText + '，含 ' + list.length + ' 个文件 —— 点发送发出，附件由 AI 读取' };
                 else {
                     const made = downloadBlob(blob, zipName);
                     deliv = {
@@ -8631,17 +8610,8 @@
         }
         const out = factsOut.slice();
         if (payload.length) {
-            // 内容载荷：最多 60 行，超出保留首尾
-            const PAYLOAD_CAP = 60;
-            if (payload.length > PAYLOAD_CAP) {
-                out.push.apply(out, payload.slice(0, PAYLOAD_CAP - 8));
-                out.push('  … 省略 ' + (payload.length - PAYLOAD_CAP) + ' 行 …');
-                out.push.apply(out, payload.slice(-7));
-                const sp = spillText('payload', payload.join('\n'));   // 14：完整载荷落盘，给 read 路径
-                if (sp) out.push('  ↳ 完整内容：read ' + sp);
-            } else {
-                out.push.apply(out, payload);
-            }
+            // 严格按 AI 的意愿回传：内容载荷原样整段给出，不再截成首尾 60 行
+            out.push.apply(out, payload);
         }
         out.push.apply(out, envTail);
         // 2.13.0：AUTO 必须附 diff —— 自动修正改了文件却只给一句 ⚠，等于要用户为看不见的改动负责。
@@ -8793,7 +8763,7 @@
             '| 类别 | 命令 | 说明 |',
             '| --- | --- | --- |',
             '| 读 | `read` `grep` `find` `diff` `list` `tree` `stat` `help` | read 读文件/列目录/read #锚点；grep 按内容全容器检索；find 按文件名/路径找；diff 比较差异；list 列目录；tree 目录树；stat 统计；help 查用法 |',
-            '| 写 | `write` `append` `edit` `insert` `rmline` `apply` `patch` `merge` `split` `sort` `mkdir` `move` `copy` `delete` `undo` `redo` `restore` `upload` | write 覆盖写；append 追加；edit 替换；insert 插入正文；rmline 删行区间；apply 多文件写入；patch 补丁；merge 按序拼接；split 切片；sort 排序行；mkdir 建目录；move 移动/重命名；copy 复制；delete 删除；undo 撤销；redo 重做；restore 回收站/恢复；upload 生成附件 |',
+            '| 写 | `write` `append` `edit` `insert` `rmline` `apply` `patch` `merge` `split` `sort` `mkdir` `move` `copy` `delete` `undo` `redo` `restore` `upload` | write 覆盖写；append 追加；edit 替换；insert 插入正文；rmline 删行区间；apply 多文件写入；patch 补丁；merge 按序拼接；split 切片；sort 排序行；mkdir 建目录；move 移动/重命名；copy 复制；delete 删除；undo 撤销；redo 重做；restore 回收站/恢复；upload 生成附件（发给你读） |',
             '| 控制 | `cd` `expect` | cd 切换工作目录；expect 断言，失败 PARTIAL |',
             '| 计划 | `plan` | 计划模式与条目：on/off/list/add/edit/note/done/doing/todo/del/clear |',
             '',
@@ -8814,7 +8784,7 @@
             '- `copy /src /dst 10-20`：裁出该段存 `/dst`。`rmline /src 10-20` 裁掉该段。',
             '- `sort /list.txt uniq`：就地排序 + 去重。`numeric` 按数值。`reverse` 反向。',
             '- glob 批量：`delete /tmp/*.txt force`、`copy /src/*.md /out`、`move /src/*.txt /out`。整批原子。内部区拒绝。glob 删除必须 `force`，命中目录必须 `recursive`。',
-            '- `upload /src` 或 `upload /a.js /b.js`：打成 zip 附件。看全项目必须先用 `upload /项目目录` 一次拿全。',
+            '- `upload /src` 或 `upload /a.js /b.js`：打成 zip 附件发出 —— 附件是**发给你读的**：要了解文件的全部内容就直接 upload 它（别用 read 拉全文）；看全项目先用 `upload /项目目录` 一次拿全。',
             '- 一律并批：`apply`、`edit /目录`、`grep -l` + 令牌、glob、一轮多条命令。',
             '',
             '## 4. 两个令牌',
@@ -8954,7 +8924,7 @@
             '批       apply <<< @@ /a → 内容 @@ /b → 内容 <<<   merge /out /01 /02   split /big 500   sort /f uniq',
             '搬       mkdir /d   move /a /b   copy /a /b   delete /f [recursive]   copy /src /dst 10-20',
             'glob     delete /tmp/*.txt force   copy /src/*.md /out   move /src/*.txt /out',
-            '附件     upload /f（单文件）   upload /目录   upload /a /b（打成 zip）    §3.1',
+            '附件     upload /f（单文件·全文发给你读）   upload /目录   upload /a /b（打成 zip）    §3.1',
             '找       grep /路径 "词" [-i -e -v -l -c ext= ctx= limit=]（-n 不必写） §5',
             '         find /路径 "*.js" [ext= depth= dirs sort=mtime since=]   diff /a /b',
             '看       list /d   tree /   stat /f',
@@ -8972,7 +8942,7 @@
      * 这份提示词会**单独使用**（面板「复制首发提示」、或关掉「注入手册全文」时只发它），
      * 所以它必须自己站得住：域怎么写、正文怎么给、令牌怎么用、收尾符怎么用、不会就去 help。
      * 具体命令一律不背 —— 需要时 `help` / `help <命令>` 现查，手册按节取，不会漂。
-     * 行数：23 行（旧自检 _p6_manual_selftest.js 的 ≤15 行约束随新版文本作废），
+     * 行数：25 行（旧自检 _p6_manual_selftest.js 的 ≤15 行约束随新版文本作废），
      * 加内容请并进现有行。 */
     function buildBootstrapPrompt() {
         return [
@@ -8992,7 +8962,9 @@
             '',
             '`grep` / `find` 路径必须写在搜索词前。不认识的参数导致回执 PARTIAL。',
             '',
-            '批量操作必须并批：写多个文件必须用 `apply`；全目录替换必须用 `edit /目录 "旧" "新"`；批量查找文件名必须用 glob；批量查找内容必须用 `grep -l`；看全项目必须用 `upload /目录`；读全文必须用 `read /f full`。`plan add X` 与 `plan done last` 必须同批写。',
+            '批量操作必须并批：写多个文件必须用 `apply`；全目录替换必须用 `edit /目录 "旧" "新"`；批量查找文件名必须用 glob；批量查找内容必须用 `grep -l`；看全项目必须用 `upload /目录`；通读文件用 `upload /f`（附件直接发给你读）。`plan add X` 与 `plan done last` 必须同批写。',
+            '',
+            '要了解文件的**全部内容**，一律 `upload /路径` 把文件作为附件发出 —— 附件就是发给你读的（用户打不开也不需要看）；`read` 只用于取片段与行号定位。',
             '',
             '回执令牌必须直接当路径用：`#a3f` 指行，`@p1` 指文件。AUTO 回执必带 diff。',
             '',
@@ -9126,7 +9098,7 @@
         '围栏内是字面量，正文不必再自己包围栏；特殊字符多就 `write /f base64`。',
         '每条回复的最后一行写 `◆`；任务全部跑完或要用户介入，改写 `■ 原因`。',
         '定位用令牌 —— `#a3f` 指某一行、`@p1` 指某个文件，直接当路径用。',
-        '少来交互 —— 能批量就批量（apply / 目录 glob / grep -l），`upload /目录` 一次打包看全项目。'
+        '少来交互 —— 批量靠 apply / glob / grep -l；要看文件全部内容就 `upload /f`，附件直接发给你读，`upload /目录` 一次打包看全项目。'
     ];
     let microLessonStep = 0;
     function microLessonText(maxLessons) {
@@ -13018,7 +12990,7 @@
         const sizeText = fmtSize(byteLen(content));
         const att = attachToComposer(name, content);
         if (att.ok) {
-            return { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + name + ' ' + sizeText + ' —— 在聊天里点发送即可' };
+            return { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + name + ' ' + sizeText + ' —— 点发送发出，附件由 AI 读取（用户无需打开）' };
         }
         const made = downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), name);
         return {
@@ -14625,7 +14597,7 @@
 
             const fm = [{ t: '返回列表', icon: ic('back'), a: 'back' }];
             if (rd) fm.push({ t: '解除只读并编辑', icon: ic('pen'), a: 'unlockEdit' });
-            fm.push({ t: '另存为附件', icon: ic('download'), a: 'attach' });
+            fm.push({ t: '作为附件发给 AI', icon: ic('download'), a: 'attach' });
             if (!VirtualFS.isInternal(uiState.editing.path)) {
                 fm.push({ t: '删除文件', icon: ic('trash'), a: 'delFile', dgr: true });
             }
@@ -14645,7 +14617,7 @@
                     { t: '新建文件夹', icon: ic('folderPlus'), a: 'mkdir' },
                     { t: '新建文件', icon: ic('filePlus'), a: 'mkfile' },
                     // 2.13.0 批量附件：当前目录（含子目录）一键打包成 zip 发到聊天里
-                    { t: '把当前目录打成附件（zip）', icon: ic('download'), a: 'attachDir' },
+                    { t: '把当前目录打成附件发给 AI（zip）', icon: ic('download'), a: 'attachDir' },
                     { t: '更多操作…', icon: ic('settings'), a: 'more' },
                     { t: '批量选择', icon: ic('check'), a: 'batchToggle' }
                 ];
