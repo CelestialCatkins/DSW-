@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.15.0
+// @version      2.16.0
 // @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压；2.13.6 首次运行的打开顺序收紧为硬保证：**首屏绝不自动展开工作区、也绝不自动弹引导层**，只有用户点悬浮球 → 面板打开 → 引导层才跟着打开（createUI 里显式 closePanel 一次，2.13.4 那句「点球打开工作区」继续挂在球旁）；补掉延迟 120ms 里用户又收回面板时引导层仍盖上来的竞态；「内容存在哪里」这一栏在**设置之后、完成之前**加一根旋转加载动画（引导层与设置页共用同一段 HTML 与同一个忙标志，搬家/授权要几百毫秒到几秒，没有它用户会以为按钮没生效而连点）；切 gm/opfs、绑定、授权、解绑四个动作合并到 runMediaOp 一条路径 —— 引导层里切介质以前完全没上锁（连点两下就是两次并发搬家，内容会分裂）、showDirectoryPicker 同步抛错时忙标志永远清不掉导致按钮永久失效，这两类都已修掉；删掉与 toggleCfg 重复的 applyCfgSideEffects 与无人调用的 setFolderNameForTest；2.14.0 计划模式重新定位：**只负责展示与上下文同步，不再是权限闸门**——开计划时 AI 的 write/edit/delete/mkdir 全部照常（原来「计划模式：写操作已拦截」那一层连同 planDenied 一起删掉了；系统区只读是另一回事，仍照拦，而且现在报的是它自己的理由、不再被计划模式的理由盖住）；**AI 可自主 plan on / plan off**，不再需要用户确认；计划窗口从面板头下方**改为吸附在宿主输入框上方**（挂到 root 而不是 panel 里——panel 带 transform，会成为 fixed 的包含块，放在里面面板一收计划条就跟着跑），默认折叠且只占左侧半宽、右侧半宽留空给宿主页面的「向下滚动」按钮（容器 pointer-events:none，只有 .pin 吃点击），展开时占满整行；条目补上**更新时间与备注**（按条目文字存一份会话级元数据，不污染给 AI 读的 plan.md），新增 `plan edit <定位> <新内容>` 与 `plan note <定位> <备注>`；状态标为已完成时播一道**划线动画**（未完成/进行中不划）——这里踩到一个坑：一次改动会重画两遍（planTouched → renderPlanBar + refreshUI → render），单纯用「见过就不画」会让动画一帧都没画就没了，改成转换时把条目挂进一个短窗口，同一次改动的所有重画都保留动画、窗口过后不再重播；**用户每发一条消息都会自动附上最新计划状态**（新对话首条的协议注入路径也一并附上；与回执那条通道共用「自动同步计划状态」一个开关），所以 AI 与用户看到的始终是同一份、下一轮就是最新的；2.14.1 修引导层「点一下开关就回到最上方」：refreshOnboard 整块重建 innerHTML 时把 .ob-b 连同它的 scrollTop 一起销毁了（开关、配色、明暗、介质按钮全部中招），现在重画前记住位置、重画后还原；并降低**折叠态**计划条高度（49px → 38px）：折叠时收掉 3px 进度条（x/y 与百分比已表达进度）、标题行收紧到 36px、徽标缩小；触控区不跟着缩（项目硬约束 ≥44px），用 .psum::after 往下补 8px 透明热区；2.14.2 首次运行点「完成」不再自动发送系统提示 —— 以前引导层收尾直接调 handleAction("inject") 把提示词+手册排进出站队列，于是用户刚看完引导层、一个字没打，聊天框里就凭空多出一条机器人消息。现在点完成只关层、记已看过，并提示「新对话发第一条消息时会自动附带协议说明」；协议信息仍在新对话里用户第一次点发送时与那句话合成**同一条**发出（用户不输入就永远不发）；2.14.3 引导面板的节奏器开关改名为「节奏器等待」并改准说明：原来叫「节奏器 · 发太快时自动降速」，一是与设置页同一个开关两个叫法，二是节奏器并不「降速」——降速的是用户自己，容器做的是**发太快时先等一等**，说清了才不会被误解成影响 AI 回答速度；2.14.4 DeepSeek 加固：思考区（.ds-think-content 一类）整棵子树不再进正文 —— R1「深度思考」里写的 ```dsw 草稿不会被当命令执行（答案正文 ds-assistant-message-main-content 照旧取全）；页面正在重挂输入区 / 输入区不可见时，执行命令与点发送都先等一等（有上限，超时放行并留痕，随后 60s 冷却），不在重渲染的中间态上盲推；非 DeepSeek 平台闸门直通，行为与 2.14.3 一致；2.14.5 豆包适配（按豆包前端产物实测，证据快照见 _fixtures/doubao-evidence.txt）：消息正文认 data-testid="message_text_content"、用户气泡按 send-msg-bubble 类区分、输入框认 chat_input_input、发送键认 chat_input_send_button、「正在生成」认 chat_input_local_break_button（纯图标按钮，靠文案匹配原本抓不到，于是防打断与「等回复输出完」两道闸门在豆包上形同虚设）、思考区认 message_thinking/message_loading、附件认 upload-file-input（豆包现在能直接 upload 进聊天）；顺带把「平台声明的选择器」做成通用钩子（composerSelector / sendSelector / stopSelector / thinkingSelector），其它平台不声明就完全走原路，行为不变；2.14.7 提示词与手册定稿（精炼）/ atomic 禁用定稿：
 // 2.14.8 附件用途正名与全文取材走附件：附件是**发给 AI 读的**（用户打不开也不需要看）；系统提示词与手册新增硬规则——要了解文件的全部内容一律 `upload /路径` 把文件作为附件发给 AI 自己读，read 只用于片段与行号定位；upload 命令说明、交付回执文案、面板附件菜单、read 全文回执提示同步改口；read/回执按请求严格回传（去省略）并入本版；版本号升至 2.14.8
 // 2.15.0 并行脚本作业 + 「大步慢跑」默认工作方式：新增 exec / wait / jobs / kill —— 脚本写在容器里由 AI 执行（dsw.* 读写走 VirtualFS 正门、内部区同样只读，dsw.pool 有界并行、console 与返回值进回执、写失败按单命令存点回滚），nowait 同批多开后台并行、wait 多个作业一次合并取回（开工与收结果各占一次交互）；执行链异步化（executeBatch / runMessage 改 async，handleMessage 从「re-enter 即 skip」改为排队串行，等待窗口绝不清消息）；失败回执也携带作业日志；回执层多步改动（≥3 路径未开计划）冷却提示默认计划模式；幂等重发保护覆盖 exec；首发提示词与手册新增硬规则：大步慢跑（一轮一批、能并行就并行、wait 汇总）与复杂/多步骤/严格顺序任务默认先 plan on 列计划照单推进；手册新增 §3.2 并行脚本作业（dsw API 用法），§3 命令表加脚本行、§7 危险命令并入 exec、§8 加默认开计划、§11 速查加脚本行，冷启动微课补两条；版本号升至 2.15.0
+// 2.16.0 计划条/状态条/文件编辑器/MCP 客户端：计划条与悬浮球同层（z-index:3）且球在上、不再遮面板，贴合输入框上方并避让附件区/工具栏/语音条（DeepSeek 按结构识别、其余平台通用启发式），键盘显隐/输入框变高/增删附件/展开折叠/横竖屏实时重算，展开态限高内滚+底部按钮常驻，宽屏两侧够宽时侧贴、不够回退上方；暂停态颜色完全跟随主题主色（边框/图标/环形进度同 var(--ac)）；新增状态条栈：优先挂在球左/右侧并垂直居中（球在左半屏放右侧，反之亦然）、两侧不足回退上方，多条独立堆叠、最多露出 3 条其余滚动+边缘渐隐、视觉可覆盖聊天但不吃点击，MCP 执行中显示「MCP 执行中 x分x秒」；文件编辑器菜单「文本编辑」组置顶（撤销/重做/全选/复制/粘贴/保存，只读只留全选/复制），撤销短按撤销打字、长按 550ms 出保存点时间轴（倒序、上限 50、二次确认回退、只记手动+自动保存），自动保存默认开、仅内容变动触发、2 分钟、pagehide/beforeunload/隐藏补存，成功在状态栏报时间、失败标红不反复重试；关闭面板/切页签/返回列表/打开另一文件/删除当前文件/刷新页面六条离开路径未保存时三选一确认（只读/未变/已自动保存不弹）；新增通用 MCP 客户端（仅 Streamable HTTP，含 SSE）：GM_xmlhttpRequest + @connect 跨域，initialize→保存 Mcp-Session-Id→initialized，会话失效自动重建并提示；工具分页/搜索、单个 schema 按需；call 支持内联/定界 JSON 与 nowait/wait/jobs/kill；风险分级优先读 annotations、缺失查内置表，三档全局风险模式（全部自动仍留 toast，默认不选）；只读/幂等 90 秒同参跳过；≤30 秒直接回执、>30 秒先回任务号，有草稿并入用户发送、空闲完成即单发，失败也汇报；链式执行默认开可关；未配置零影响；手册新增 §12 与 help mcp；诊断地址脱敏；mcp 列入执行域硬约束（能改设备文件，与写命令同级）；版本号升至 2.16.0
 // 首发提示词改为精炼版（你是 DSW 容器操作员），手册改为§1～§11 精炼文案；
 // atomic 改为整条消息 DENY（识别到即拒绝，不执行任何域），回执给固定改法；
 // 手册 §1 表格 atomic 改为「禁止使用；整批保真用 expect」，§2 告警条与 §11 对齐；
@@ -38,6 +39,8 @@
 // @grant        GM_listValues
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      *
 // @grant        unsafeWindow
 // @noframes
 // ==/UserScript==
@@ -75,7 +78,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.15.0';
+    const VERSION = '2.16.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -178,6 +181,17 @@
 
         PLAN_RECEIPT_MAX_ITEMS: 12,   // 计划命令回执里回显的条目上限
 
+        // —— 2.16.0 文件编辑器 ——
+        AUTOSAVE_MS: 120000,          // 自动保存间隔（仅内容有变动时触发）
+        SAVEPOINT_MAX: 50,            // 保存点（手动 + 自动）上限
+        UNDO_HISTORY_MAX: 200,        // 编辑器内「撤销打字」的本地历史深度
+
+        // —— 2.16.0 MCP ——
+        MCP_TIMEOUT_MS: 120000,       // 单次 tools/call 超时
+        MCP_REPORT_WINDOW_MS: 30000,  // 30 秒内直接回执
+        MCP_IDEMPOTENT_WINDOW_MS: 90000,
+        MCP_TOOLS_PAGE: 20
+
     };
 
     const SYS_PREFIX = CONFIG.SYS_PREFIX;
@@ -208,6 +222,9 @@
     const STORE_BALL_POS = 'dsw2:ui:ball-pos';
     const STORE_UI_CFG = 'dsw2:ui:cfg';
     const STORE_UI_ONBOARD = 'dsw2:ui:onboard';   // 2.13.3：首次运行引导已完整看过
+    const STORE_EDITOR_SP = 'dsw2:ed:sp:';        // 2.16.0：编辑器保存点（按路径）
+    const STORE_MCP_SERVERS = 'dsw2:mcp:servers'; // 2.16.0：MCP 服务（空 = 零影响）
+    const STORE_MCP_CFG = 'dsw2:mcp:cfg';         // 2.16.0：风险模式 / 链式执行
     const STORE_MANUAL_VER = 'dsw2:manual:ver';
     const STORE_MANUAL_HASH = 'dsw2:manual:hash';   // 容器自己写下的那版手册的指纹（判断「手册是否被人改过」）
 
@@ -5464,7 +5481,8 @@
         cd: { kind: 'control', desc: '切换工作目录', example: 'cd /src' },
         expect: { kind: 'control', desc: '断言（失败标 PARTIAL）', example: 'expect /src/a.js "export const add"' },
         help: { kind: 'read', desc: '查命令用法（不必背命令表）', example: 'help edit' },
-        plan: { kind: 'plan', desc: '计划模式与条目（on/off/list/add/edit/note/done/doing/todo/del/clear）', example: 'plan add 改造出站节奏器' }
+        plan: { kind: 'plan', desc: '计划模式与条目（on/off/list/add/edit/note/done/doing/todo/del/clear）', example: 'plan add 改造出站节奏器' },
+        mcp: { kind: 'control', desc: 'MCP 服务（status/tools/schema/call/wait/jobs/kill/risk/chain）', example: 'mcp tools np_apk' }
     };
     const COMMAND_NAMES = Object.keys(COMMANDS);
 
@@ -5524,6 +5542,16 @@
         cd: { syntax: 'cd /路径', notes: ['cwd 会影响相对路径；cd / 回根'] },
         expect: { syntax: 'expect /路径 "必须出现的文本"', notes: ['后置断言：失败 → 本批已写入的内容自动回滚'] },
         plan: { syntax: 'plan on|list|add <条目>|done|doing|todo <序号|last|文字>|del|clear', notes: ['last = 最后一条（可与 plan add 同批）', '要求多、步骤多、流程复杂或顺序严格的任务默认先 plan on', 'plan off 只有用户能退'] },
+        mcp: {
+            syntax: 'mcp status|servers|add <名称> <url>|remove|enable|disable <名称>|tools [关键词] [page=N]|schema <工具>|call <工具> [nowait] [timeout=毫秒] <<<JSON>>>|wait <任务号…>|jobs|kill <任务号…>|risk allow|partial|never|chain on|off',
+            notes: ['未配置服务时零影响：不加载、不请求、不占回执', '连接流程 initialize → 保存 Mcp-Session-Id → initialized；会话失效自动重建并提示',
+                '工具列表分页/搜索；单个 schema 用 mcp schema 现取，不要把全部 schema 读进上下文',
+                'call 默认等 30 秒：≤30 秒直接回执；超过先回任务号（容器生成），完成/失败自动汇报',
+                '输入框有草稿 → 结果等用户点发送时并入同一条；空闲 → 完成即单发一条',
+                '只读/幂等工具 90 秒内同参数重发自动跳过；写入/高危不跳过',
+                '风险提示优先用 tools/list 的 annotations，缺失时查内置对照表'
+            ]
+        },
         upload: { syntax: 'upload /路径  |  upload /目录  |  upload /a /b /c', notes: ['附件随消息发出，直接给你（AI）读 —— 要文件全部内容就 upload 它，别用 read 拉全文', '目录或多个路径 → 打成 zip 附件一次发出；平台无附件入口时回退下载'] },
         exec: { syntax: 'exec /路径 [nowait] [timeout=毫秒]', notes: ['跑容器里的脚本文件：脚本环境有 dsw.*（读写容器/有界并行 pool）与 console，可顶层 await', '默认等到结束才回执；加 nowait 立即返回作业号 jN —— 同批多条 exec nowait 并行开跑，再 wait j1 j2 一次取回', '超时与 kill 是协作式：在 dsw.* 调用、pool/pause 让出点生效'] },
         wait: { syntax: 'wait <作业号> [作业号…] [timeout=毫秒]', notes: ['等一批作业结束，把全部日志与返回值并进本条回执（默认窗口 60000ms）', '窗口内没结束 → 回执带已产出日志与作业号，再 wait 续取'] },
@@ -6546,6 +6574,7 @@
         if (op === 'delete') return isDomain;   // 所有删除（含单个文件）都要显式执行域（手册 §9）
         if (op === 'upload' || op === 'restore' || op === 'undo' || op === 'redo') return isDomain;
         if (op === 'exec') return isDomain;   // 脚本能写容器：与写命令同级，域外永不放宽
+        if (op === 'mcp') return isDomain;    // 2.16.0：MCP 能改设备上的 APK，与写命令同级
         return true;
     }
 
@@ -6604,6 +6633,8 @@
         ctx.heals = ctx.heals || 0;
         // §5：冒险型自愈的额度按命令重算 —— 每条命令各有一次机会，不再整批共用一次
         ctx.riskyHeals = 0;
+        // 2.16.0：mcp 的参数里带 URL（含 / 与 *），不能走路径解析/令牌展开
+        if (cmd.op === 'mcp') return Mcp.doMcp(cmd);
         // 令牌展开先于一切路径解析（计划命令不吃路径，放行即可）
         let tokenHeal = '';
         if (cmd.op !== 'plan') {
@@ -9332,6 +9363,32 @@
             '收尾     ◆ 每条回复最后一行        ■ 原因：任务跑完 / 需要介入          §9',
             '计划     plan on / off / add / edit / note / done|doing|todo <序号|last|文字> / del / clear §8',
             '````',
+            '',
+            '## 12. MCP',
+            '',
+            'MCP 工具在 `mcp` 一条命令下：服务由用户配置，未配置时**零影响**（不加载、不请求、不占回执）。',
+            '',
+            '| 做什么 | 写法 |',
+            '| --- | --- |',
+            '| 看状态 | `mcp status`（服务 / 会话 / 工具数 / 进行中作业 / 风险模式） |',
+            '| 看服务 | `mcp servers` |',
+            '| 加/删/启停 | `mcp add <名称> <http://主机:端口/mcp>` · `mcp remove <名称>` · `mcp enable` / `mcp disable` |',
+            '| 找工具 | `mcp tools [关键词] [page=N] [limit=N] [refresh]`（分页，不把全部工具塞进上下文） |',
+            '| 取 schema | `mcp schema <工具>`（只取这一个） |',
+            '| 调用 | `mcp call <工具> [nowait] [timeout=毫秒]` + 内联 `{"参数":值}` 或 `<<<JSON 正文<<<` |',
+            '| 取回/列表/终止 | `mcp wait <任务号…> [timeout=]` · `mcp jobs` · `mcp kill <任务号…>` |',
+            '| 风险/链式 | `mcp risk allow|partial|never` · `mcp chain on|off`（用户也可在面板设置里改） |',
+            '',
+            '规则：',
+            '- 连接：initialize → 保存 `Mcp-Session-Id` → `notifications/initialized`；断线或会话失效自动重建并提示，重试一次。',
+            '- `call` 默认最多等 30 秒：**≤30 秒直接回执**；**超过 30 秒先回任务号**（容器生成，你只转述），完成或失败后自动汇报。',
+            '- 汇报时机：用户输入框有草稿 → 等用户点发送时并入同一条；空闲 → 完成瞬间单独发一条。**失败同样汇报**。',
+            '- 幂等：只读/幂等工具 90 秒内同参数重发**自动跳过**并提示；写入/高危工具不跳过。',
+            '- 风险：优先用 `tools/list` 返回的 annotations（readOnlyHint / destructiveHint）；缺失时查内置对照表（delete/install/sign 等高危，write/build 等写入，read/list/open 等只读）。',
+            '- 风险模式三档：全部自动允许（仍有一条轻提示）/ 部分自动允许（只读放行、风险弹确认）/ 不自动允许。',
+            '- 链式执行默认开：收到结果后可继续调用；用户可在设置里关掉。',
+            '- 长任务：用 `nowait` 开一个作业，`mcp wait` 或 `mcp jobs` 再取，避免占住一轮交互。',
+            '- 手册只有这一节讲 MCP：需要时 `help mcp` 现取。',
         ].join('\n');
     }
     /* ---------------------------- L0 首发提示 ----------------------------
@@ -13480,8 +13537,8 @@
         '.ball .ic.pause{display:none}',
         '.ball.paused .ic.dsw{display:none}',
         '.ball.paused .ic.pause{display:block}',
-        '.ball.paused{border-style:dashed;border-color:var(--wn)}',
-        '.ball.paused .ic{color:var(--wn)}',
+        '.ball.paused{border-style:dashed;border-color:var(--ac)}',
+        '.ball.paused .ic{color:var(--ac)}',
         '.ball .badge{display:none;position:absolute;top:-1px;right:-1px;width:13px;height:13px;border-radius:50%;background:var(--er);box-shadow:0 0 0 2px var(--bg)}',
         '.ball.has-log .badge{display:block}',
         '.ball.holding::after{content:"";position:absolute;top:-6px;left:-6px;right:-6px;bottom:-6px;border-radius:50%;border:2px solid var(--ac);animation:dswhold .55s linear forwards}',
@@ -13502,6 +13559,29 @@
         '.hint.sent{border-left-color:var(--ok)}',
         '.hint.cooling{border-left-color:var(--er)}',
         '.hint.paused{border-left-color:var(--wn)}',
+
+        /* 2.16.0 状态条：多条独立、侧挂悬浮球左右并垂直居中；最多露出 3 条，其余滚动浏览，
+         * 上下边缘做透明度渐隐；视觉上可覆盖聊天内容，但不吃点击（pointer-events:none）。 */
+        '.sbar-stack{position:fixed;left:0;top:0;z-index:2;display:none;flex-direction:column;gap:6px;',
+        'pointer-events:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;',
+        '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 12px,#000 calc(100% - 12px),transparent 100%);',
+        'mask-image:linear-gradient(180deg,transparent 0,#000 12px,#000 calc(100% - 12px),transparent 100%)}',
+        '.sbar{flex:none;max-width:100%;display:flex;align-items:flex-start;gap:7px;padding:7px 10px;',
+        'background:var(--sf);border:1px solid var(--ln);border-left:3px solid var(--dim);border-radius:9px;',
+        'box-shadow:0 5px 18px rgba(0,0,0,.26);font-size:12px;line-height:1.4;word-break:break-word}',
+        '.sbar .s-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-top:4px}',
+        '.sbar.run{border-left-color:var(--ac)}.sbar.run .s-dot{background:var(--ac)}',
+        '.sbar.ok{border-left-color:var(--ok)}.sbar.ok .s-dot{background:var(--ok)}',
+        '.sbar.warn{border-left-color:var(--wn)}.sbar.warn .s-dot{background:var(--wn)}',
+        '.sbar.err{border-left-color:var(--er)}.sbar.err .s-dot{background:var(--er)}',
+        '.sbar .s-tx{flex:1;min-width:0}',
+        /* 保存点时间轴（编辑器长按撤销）：倒序列表，最新在上 */
+        '.spt{font-family:var(--mono);font-size:11px;color:var(--dim);padding:2px 2px 8px}',
+        '.spi{display:flex;align-items:center;gap:8px;min-height:46px;padding:6px 4px;border-bottom:1px solid var(--ln);cursor:pointer}',
+        '.spi:hover{background:var(--bg)}',
+        '.spi .k{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid currentColor;color:var(--ac)}',
+        '.spi .k.auto{color:var(--dim)}',
+        '.spi .t{font-family:var(--mono);font-size:12px}',
 
         /* Toast */
         '.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);z-index:7;',
@@ -13537,14 +13617,21 @@
          *   · 容器 pointer-events:none —— 折叠时右半边是空的，必须把点击透给宿主页面的「向下滚动」按钮；
          *   · 真正吃点击的只有 .pin 内部（.pin 默认占左半宽 = 50%，展开时 100%）；
          *   · --pb 是「离视口底部多远」，由 updatePlanDock() 按宿主输入框的位置实时算出。 */
-        '.planbar{position:fixed;left:0;right:0;bottom:0;z-index:5;pointer-events:none;',
+        /* 2.16.0 需求1/2：计划条与悬浮球同层（z-index:3），低于面板（4）；两者重叠时球在上
+         * （DOM 里球排在计划条之后）。面板盖住计划条是允许的 —— 打开面板时不得挡住面板内容。 */
+        '.planbar{position:fixed;left:0;right:0;bottom:0;z-index:3;pointer-events:none;',
         'padding-bottom:var(--pb,8px);padding-bottom:calc(var(--pb,8px) + env(safe-area-inset-bottom));',
         'display:flex;justify-content:center}',
         '.planbar .pin{position:relative;pointer-events:auto;width:50%;max-width:100%;box-sizing:border-box;',
         'border:1px solid var(--ln);border-bottom:none;border-radius:12px 12px 0 0;background:var(--sf);',
-        'box-shadow:0 -4px 18px rgba(0,0,0,.16);overflow:hidden;',
+        'box-shadow:0 -4px 18px rgba(0,0,0,.16);overflow:hidden;display:flex;flex-direction:column;',
+        'max-height:var(--pmax,60vh);',
         'transition:width .22s cubic-bezier(.2,.8,.2,1)}',
         '.planbar.open .pin{width:100%}',
+        /* 2.16.0 需求6：宽屏侧贴（左右两侧任一侧够宽）；两侧都不够由 JS 回退到输入框上方 */
+        '.planbar.side{justify-content:stretch}',
+        '.planbar.side .pin{width:100%;border:1px solid var(--ln);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.22)}',
+        '.planbar.side .psum{border-radius:12px 12px 0 0}',
         '.psum{display:flex;align-items:center;gap:8px;padding:8px 12px;min-height:44px;cursor:pointer}',
         '.pexp{flex:none;font-family:var(--mono);font-size:10px;color:var(--dim)}',
         // 2.14.1 折叠态瘦身：原来折叠也是「44px 标题行 + 3px 进度条」= ~49px，堆在输入框上方很占地方。
@@ -13560,9 +13647,9 @@
         '.bdg{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;border:1px solid currentColor;color:var(--ac);flex:none}',
         '.ptxt{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
         '.pct{font-family:var(--mono);font-size:11px;color:var(--dim)}',
-        '.pbar{height:3px;background:var(--ln)}',
+        '.pbar{flex:none;height:3px;background:var(--ln)}',
         '.pbar i{display:block;height:100%;background:var(--ac);transition:width .25s}',
-        '.pitems{padding:2px 6px 8px}',
+        '.pitems{padding:2px 6px 8px;overflow-y:auto;overscroll-behavior:contain;min-height:0;flex:1 1 auto}',
         '.pitem{display:flex;align-items:flex-start;gap:6px;min-height:44px;padding:6px 4px}',
         '.pstat{width:44px;height:44px;border-radius:8px;font-size:15px;color:var(--dim);flex:none}',
         '.pstat.run{color:var(--ac)}.pstat.done{color:var(--ok)}',
@@ -13580,7 +13667,9 @@
         '.pitem.done.fx .ptxt2::after{animation:pstrike .42s cubic-bezier(.2,.8,.2,1) forwards}',
         '@keyframes pstrike{from{transform:scaleX(0)}to{transform:scaleX(1)}}',
         '.pempty{font-size:12px;color:var(--dim);padding:8px 10px;font-family:var(--mono)}',
-        '.pfoot{display:flex;gap:6px;padding:6px 4px 2px}',
+        /* 2.16.0 需求5：展开态限高、内容内滚、底部按钮常驻（sticky） */
+        '.pfoot{position:sticky;bottom:0;display:flex;gap:6px;padding:6px 4px 8px;background:var(--sf);',
+        'border-top:1px solid var(--ln);z-index:1}',
 
         /* 内容区 */
         '.pbody{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding:10px 12px 18px}',
@@ -13852,6 +13941,727 @@
         '.dsw2-root .pitem.done .ptxt2{text-decoration:line-through}}'
     ].join('');
 
+    /* =========================================================================
+     * 20 MCP 客户端（2.16.0）
+     *   需求21-36/40：通用 MCP 客户端，传输只做 Streamable HTTP（含 SSE 响应），
+     *   跨域走 GM_xmlhttpRequest（脚本头已加 @connect *）；连接流程
+     *   initialize → 保存会话 ID → notifications/initialized，断线/会话失效自动重建并提示。
+     *   工具发现分页/搜索、单个 schema 按需取；call 支持内联参数或定界正文、
+     *   nowait 后台作业 / wait 取回 / jobs 列表 / kill 终止；风险分级优先用
+     *   tools/list 的 annotations，缺失时查内置对照表；三档全局风险模式；
+     *   只读/幂等工具 90 秒内同参数重发自动跳过；≤30 秒直接回执、>30 秒先给任务号；
+     *   输入框有草稿 → 等用户发送时并入同一条，空闲 → 完成即单发。
+     *   未配置任何服务时不发请求、不加载、不占回执（零影响）。
+     * ====================================================================== */
+    const Mcp = (function () {
+        const CFG_DEFAULTS = { riskMode: 'partial', chain: true, warnedAuto: false };
+        const sessions = new Map();
+        const jobs = new Map();
+        const idem = new Map();
+        let cfgCache = null;
+        let seq = 0;
+        let pendingReport = [];
+
+        function loadCfg() {
+            if (cfgCache) return cfgCache;
+            const raw = Store.get(STORE_MCP_CFG, {}) || {};
+            cfgCache = Object.assign({}, CFG_DEFAULTS, raw);
+            if (['allow', 'partial', 'never'].indexOf(cfgCache.riskMode) < 0) cfgCache.riskMode = 'partial';
+            return cfgCache;
+        }
+        function saveCfg(patch) {
+            cfgCache = Object.assign(loadCfg(), patch || {});
+            Store.set(STORE_MCP_CFG, cfgCache);
+            return cfgCache;
+        }
+        function servers() {
+            const list = Store.get(STORE_MCP_SERVERS, []);
+            if (!Array.isArray(list)) return [];
+            return list.filter(function (x) { return x && x.id && x.url; });
+        }
+        function saveServers(list) { Store.set(STORE_MCP_SERVERS, list); return list; }
+        function hasServers() { return servers().length > 0; }
+        function enabledServers() {
+            return servers().filter(function (x) { return x.enabled !== false; });
+        }
+        function findServer(ref) {
+            const q = String(ref == null ? '' : ref).trim().toLowerCase();
+            if (!q) return null;
+            const list = servers();
+            for (const x of list) if (String(x.id).toLowerCase() === q) return x;
+            for (const x of list) if (String(x.name || '').toLowerCase() === q) return x;
+            for (const x of list) if (String(x.name || '').toLowerCase().indexOf(q) === 0) return x;
+            return null;
+        }
+        function newId(name) {
+            const base = String(name || 'mcp').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mcp';
+            let id = base, n = 1;
+            const used = {};
+            for (const x of servers()) used[x.id] = true;
+            while (used[id]) id = base + '-' + (++n);
+            return id;
+        }
+        /* 地址脱敏：诊断与日志里都不出现完整地址（需求40） */
+        function maskUrl(u) {
+            const s = String(u || '');
+            const m = /^(https?):\/\/([^/]+)(\/.*)?$/i.exec(s);
+            if (!m) return '（地址无效）';
+            let host = m[2];
+            const at = host.lastIndexOf('@');
+            if (at >= 0) host = host.slice(at + 1);
+            const c = host.lastIndexOf(':');
+            const port = c > 0 ? host.slice(c) : '';
+            const h = c > 0 ? host.slice(0, c) : host;
+            let masked = h;
+            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) {
+                const ps = h.split('.');
+                masked = ps[0] + '.*.*.' + ps[3];
+            } else if (h.indexOf('.') > 0) {
+                const bits = h.split('.');
+                masked = bits[0].slice(0, 1) + '***.' + bits[bits.length - 1];
+            }
+            return m[1] + '://' + masked + port + '/…';
+        }
+        /* Streamable HTTP 传输：POST JSON-RPC，响应可能是 application/json 或 text/event-stream */
+        function transport(url, opts) {
+            opts = opts || {};
+            return new Promise(function (resolve, reject) {
+                const method = opts.method || 'POST';
+                const headers = Object.assign({
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json, text/event-stream'
+                }, opts.headers || {});
+                const body = opts.body == null ? null : String(opts.body);
+                const timeout = Math.max(1000, opts.timeout || CONFIG.MCP_TIMEOUT_MS);
+                let settled = false;
+                const done = function (fn, v) { if (settled) return; settled = true; fn(v); };
+                try {
+                    if (typeof GM_xmlhttpRequest === 'function') {
+                        const req = GM_xmlhttpRequest({
+                            method: method, url: url, headers: headers, data: body || undefined,
+                            timeout: timeout,
+                            onload: function (r) {
+                                done(resolve, { status: r.status || 0, text: r.responseText || '', headers: r.responseHeaders || '', via: 'gm' });
+                            },
+                            onerror: function () { done(reject, new Error('连接失败（服务未启动 / 端口不对 / 不在同一局域网）')); },
+                            ontimeout: function () { done(reject, new Error('请求超时 ' + Math.round(timeout / 1000) + 's')); },
+                            onabort: function () { done(reject, new Error('已取消')); }
+                        });
+                        if (opts.signal && req && typeof req.abort === 'function') {
+                            try { opts.signal.addEventListener('abort', function () { try { req.abort(); } catch (e) {} }); } catch (e) {}
+                        }
+                    } else if (typeof fetch === 'function') {
+                        const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+                        const timer = setTimeout(function () { if (ctrl) { try { ctrl.abort(); } catch (e) {} } }, timeout);
+                        fetch(url, { method: method, headers: headers, body: body || undefined, signal: ctrl ? ctrl.signal : undefined })
+                            .then(function (res) {
+                                const hs = [];
+                                try { res.headers.forEach(function (v, k) { hs.push(k + ': ' + v); }); } catch (e) {}
+                                return res.text().then(function (t) { return { status: res.status, text: t, headers: hs.join('\r\n'), via: 'fetch' }; });
+                            })
+                            .then(function (r) { clearTimeout(timer); done(resolve, r); },
+                                function (e) { clearTimeout(timer); done(reject, new Error('连接失败：' + ((e && e.message) || '网络错误'))); });
+                    } else {
+                        done(reject, new Error('本环境没有 GM_xmlhttpRequest / fetch，无法连接 MCP'));
+                    }
+                } catch (e) { done(reject, new Error('请求失败：' + ((e && e.message) || e))); }
+            });
+        }
+        function headerOf(headers, name) {
+            const re = new RegExp('^' + name + '\\s*:\\s*(.+)$', 'im');
+            const m = re.exec(String(headers || ''));
+            return m ? String(m[1]).trim() : '';
+        }
+        function parseMessages(text, contentType) {
+            const raw = String(text || '');
+            const ct = String(contentType || '');
+            const looksSse = ct.indexOf('text/event-stream') >= 0 || /(^|\n)data:/.test(raw);
+            if (!looksSse) {
+                try { return [JSON.parse(raw)]; } catch (e) { return []; }
+            }
+            const out = [];
+            for (const line of raw.split(/\r?\n/)) {
+                const t = line.trim();
+                if (t.indexOf('data:') !== 0) continue;
+                const payload = t.slice(5).trim();
+                if (!payload || payload === '[DONE]') continue;
+                try { out.push(JSON.parse(payload)); } catch (e) {}
+            }
+            if (!out.length) { try { out.push(JSON.parse(raw)); } catch (e) {} }
+            return out;
+        }
+        function sessOf(server) {
+            let st = sessions.get(server.id);
+            if (!st) {
+                st = { id: '', nextId: 1, tools: null, toolsAt: 0, ready: false, busy: null, lastErr: '', serverInfo: null };
+                sessions.set(server.id, st);
+            }
+            return st;
+        }
+        function rpcHeaders(server, st) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (st && st.id) headers['Mcp-Session-Id'] = st.id;
+            if (server.headers && typeof server.headers === 'object') Object.assign(headers, server.headers);
+            return headers;
+        }
+        async function ensureSession(server) {
+            const st = sessOf(server);
+            if (st.ready) return st;
+            if (st.busy) return st.busy;
+            st.busy = (async function () {
+                st.id = '';
+                st.ready = false;
+                const init = await rpc(server, 'initialize', {
+                    protocolVersion: '2025-06-18',
+                    capabilities: {},
+                    clientInfo: { name: 'DSW 容器工作区', version: VERSION }
+                }, { _init: true });
+                const headers = rpcHeaders(server, st);
+                await transport(server.url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+                    timeout: 15000
+                });
+                st.ready = true;
+                st.serverInfo = (init && init.serverInfo) || null;
+                st.protocolVersion = (init && init.protocolVersion) || '';
+                return st;
+            })();
+            const p = st.busy;
+            try {
+                return await p;
+            } catch (e) {
+                st.ready = false;
+                st.lastErr = (e && e.message) || String(e);
+                throw e;
+            } finally {
+                st.busy = null;
+            }
+        }
+        async function rpc(server, method, params, opts) {
+            opts = opts || {};
+            const st = sessOf(server);
+            if (!st.ready && method !== 'initialize' && !opts._init) await ensureSession(server);
+            const id = st.nextId++;
+            const payload = { jsonrpc: '2.0', id: id, method: method };
+            if (params !== undefined) payload.params = params;
+            const r = await transport(server.url, {
+                method: 'POST', headers: rpcHeaders(server, st), body: JSON.stringify(payload),
+                timeout: opts.timeout, signal: opts.signal
+            });
+            if ((r.status === 404 || r.status === 400) && st.id && !opts._retried) {
+                st.id = '';
+                st.ready = false;
+                statusBarSet('mcp:note', 'MCP 会话失效，正在重建…', 'warn');
+                setTimeout(function () { statusBarRemove('mcp:note'); }, 4000);
+                await ensureSession(server);
+                return rpc(server, method, params, Object.assign({}, opts, { _retried: true }));
+            }
+            const sid = headerOf(r.headers, 'Mcp-Session-Id');
+            if (sid) st.id = sid;
+            const msgs = parseMessages(r.text, headerOf(r.headers, 'Content-Type'));
+            if (!msgs.length) throw new Error('服务没有返回可解析的 JSON-RPC 响应（HTTP ' + r.status + '）');
+            let reply = null;
+            for (const m of msgs) if (m && m.id === id) { reply = m; break; }
+            if (!reply) for (const m of msgs) if (m && m.id == null && m.result !== undefined) { reply = m; break; }
+            if (!reply) throw new Error('响应里没有本次请求（id ' + id + '）的结果');
+            if (reply.error) {
+                const err = new Error(reply.error.message || ('JSON-RPC 错误 ' + reply.error.code));
+                err.code = reply.error.code;
+                throw err;
+            }
+            return reply.result;
+        }
+        function normalizeTool(server, t) {
+            return {
+                serverId: server.id, serverName: server.name || server.id,
+                name: String((t && t.name) || ''), title: (t && t.title) || '',
+                description: (t && t.description) || '',
+                inputSchema: (t && t.inputSchema) || null,
+                annotations: (t && t.annotations) || null
+            };
+        }
+        /* 工具发现：内部缓存全部（不进 AI 上下文），对外只给分页名单与单个 schema */
+        async function listAllTools(server, force) {
+            const st = sessOf(server);
+            if (!force && st.tools && Date.now() - st.toolsAt < 60000) return st.tools;
+            const out = [];
+            let cursor = '';
+            let pages = 0;
+            while (pages < 40) {
+                const res = await rpc(server, 'tools/list', cursor ? { cursor: cursor } : {});
+                for (const t of ((res && res.tools) || [])) out.push(normalizeTool(server, t));
+                cursor = (res && res.nextCursor) || '';
+                pages++;
+                if (!cursor) break;
+            }
+            st.tools = out;
+            st.toolsAt = Date.now();
+            return out;
+        }
+        function riskOf(tool) {
+            const a = (tool && tool.annotations) || {};
+            if (a.readOnlyHint === true) return { level: 'read', why: 'tools/list 标注只读' };
+            if (a.destructiveHint === true) return { level: 'high', why: 'tools/list 标注破坏性' };
+            if (a.readOnlyHint === false) return { level: 'write', why: 'tools/list 标注会写' };
+            const n = String((tool && tool.name) || '').toLowerCase();
+            if (/(delete|remove|uninstall|wipe|erase|sign|install|format|clear|reset|kill|drop|purge)/.test(n)) return { level: 'high', why: '内置对照表：高危动词' };
+            if (/(write|edit|save|build|apply|patch|push|upload|create|add|set|update|modify|compile|close|release)/.test(n)) return { level: 'write', why: '内置对照表：写入动词' };
+            if (/(read|get|list|open|view|stat|info|search|find|show|describe|inspect|pull)/.test(n)) return { level: 'read', why: '内置对照表：只读动词' };
+            return { level: 'write', why: '未标注风险，按需确认处理' };
+        }
+        function confirmRisk(server, tool, args, risk) {
+            return new Promise(function (resolve) {
+                const mode = loadCfg().riskMode;
+                if (mode === 'allow') {
+                    showToast('MCP 自动允许：' + tool.name + '（全部自动允许档）');
+                    resolve(true);
+                    return;
+                }
+                if (mode === 'partial' && risk.level === 'read') { resolve(true); return; }
+                try { if (getUiCfg().notifyVibrate !== false && navigator.vibrate) navigator.vibrate(24); } catch (e) {}
+                try { if (getUiCfg().notifySound !== false && typeof fireReminder === 'function') fireReminder('mcp'); } catch (e) {}
+                if (!uiModal) { resolve(false); return; }
+                const preview = JSON.stringify(args || {}).slice(0, 200);
+                uiModal.innerHTML = '<div class="dlg"><h3>允许执行 MCP 工具？</h3><p>' +
+                    '<b>' + esc(server.name || server.id) + ' · ' + esc(tool.name) + '</b><br>' +
+                    esc(risk.why || '') + '<br><span style="font-family:var(--mono);font-size:11px">' + esc(preview) + '</span></p>' +
+                    '<div class="row2"><button type="button" class="btn" data-mc="0">拒绝</button>' +
+                    '<button type="button" class="btn pri" data-mc="1">允许</button></div></div>';
+                uiModal.classList.add('on');
+                const handler = function (e) {
+                    const b = e.target && e.target.closest ? e.target.closest('[data-mc]') : null;
+                    if (!b) return;
+                    uiModal.removeEventListener('click', handler, true);
+                    uiModal.classList.remove('on');
+                    resolve(b.getAttribute('data-mc') === '1');
+                };
+                uiModal.addEventListener('click', handler, true);
+            });
+        }
+        function jobLabel(job) {
+            const sec = Math.max(0, Math.floor((Date.now() - job.startedAt) / 1000));
+            return 'MCP 执行中 ' + Math.floor(sec / 60) + '分' + (sec % 60) + '秒';
+        }
+        function startJob(server, tool, args) {
+            const id = 'm' + (++seq) + Date.now().toString(36).slice(-3);
+            const job = {
+                id: id, serverId: server.id, serverName: server.name || server.id,
+                tool: tool.name, args: args || {}, state: 'running',
+                startedAt: Date.now(), endedAt: 0, result: null, error: '', timer: null, reported: false
+            };
+            jobs.set(id, job);
+            const tick = function () {
+                if (job.state !== 'running') return;
+                statusBarSet('mcp:' + id, jobLabel(job), 'run');
+            };
+            tick();
+            job.timer = setInterval(tick, 1000);
+            job.promise = (async function () {
+                try {
+                    const res = await rpc(server, 'tools/call', { name: tool.name, arguments: job.args }, { timeout: CONFIG.MCP_TIMEOUT_MS });
+                    job.result = res;
+                    if (res && res.isError) { job.state = 'fail'; job.error = '工具报告失败（isError）'; }
+                    else job.state = 'done';
+                } catch (e) {
+                    job.state = 'fail';
+                    job.error = (e && e.message) || String(e);
+                }
+                job.endedAt = Date.now();
+                if (job.timer) { clearInterval(job.timer); job.timer = null; }
+                statusBarRemove('mcp:' + id);
+                pushLog('MCP ' + (job.state === 'done' ? '完成 ' : '失败 ') + job.id + ' ' + job.tool +
+                    '（' + Math.round((job.endedAt - job.startedAt) / 1000) + 's）' +
+                    (job.state === 'done' ? '' : '：' + job.error), job.state === 'done' ? '' : 'error');
+                return job;
+            })();
+            return job;
+        }
+        function resultText(job) {
+            const head = '⟦mcp⟧ ' + (job.state === 'done' ? 'OK ' : 'FAIL ') + job.id + ' · ' + job.tool;
+            let body = '';
+            if (job.state === 'done') {
+                const r = job.result || {};
+                const parts = [];
+                if (Array.isArray(r.content)) {
+                    for (const c of r.content) {
+                        if (!c) continue;
+                        if (c.type === 'text' && c.text != null) parts.push(String(c.text));
+                        else parts.push('[' + (c.type || '?') + '] ' + JSON.stringify(c).slice(0, 400));
+                    }
+                } else if (r.structuredContent !== undefined) {
+                    parts.push(JSON.stringify(r.structuredContent));
+                }
+                body = parts.join('\n') || '（无文本结果）';
+            } else {
+                body = job.error || '未知错误';
+            }
+            const chain = (loadCfg().chain !== false)
+                ? '\n↳ 链式执行已开启：收到结果后可继续调用 mcp 工具'
+                : '\n↳ 链式执行已关闭：等用户下一步指示';
+            return head + '\n' + body + chain;
+        }
+        function composerHasDraft() {
+            try {
+                const c = findComposer();
+                if (!c) return false;
+                if (composerIsEmpty(c)) return false;
+                return !composerIsOurs(c);
+            } catch (e) { return false; }
+        }
+        /* 需求31：草稿在 → 等用户发送时并入同一条；空闲 → 完成即单发 */
+        function deliver(job) {
+            if (!job || job.reported) return;
+            job.reported = true;
+            const text = resultText(job);
+            try { pushReceipt(firstLine(text), job.state === 'done' ? 'feedback' : 'warn'); } catch (e) {}
+            if (composerHasDraft()) {
+                pendingReport.push(text);
+                statusBarSet('mcp:ready', 'MCP 结果已就绪，发送时并入', 'ok');
+                setTimeout(function () { statusBarRemove('mcp:ready'); }, 8000);
+                showToast('MCP 结果已就绪：发送时会并入你的消息');
+                return;
+            }
+            try {
+                enqueueOutbound(text, 'mcp');
+                showToast(job.state === 'done' ? ('MCP 完成 ' + job.id + '，结果已排队') : ('MCP 失败 ' + job.id + '，已告知 AI'), job.state === 'done' ? '' : 'warn');
+            } catch (e) {
+                showToast('MCP 结果发送失败：' + ((e && e.message) || e), 'err');
+            }
+        }
+        function takePendingReport() {
+            if (!pendingReport.length) return '';
+            const txt = pendingReport.join('\n\n');
+            pendingReport = [];
+            return txt;
+        }
+        async function runCall(server, tool, args, opts) {
+            opts = opts || {};
+            const idKey = server.id + '|' + tool.name + '|' + JSON.stringify(args || {});
+            const risk = riskOf(tool);
+            const idempotent = risk.level === 'read' && !(tool.annotations && tool.annotations.idempotentHint === false);
+            if (idempotent) {
+                const last = idem.get(idKey);
+                if (last && Date.now() - last < CONFIG.MCP_IDEMPOTENT_WINDOW_MS) {
+                    showToast('90 秒内同样参数已调用过，跳过（只读/幂等）');
+                    return { ok: true, skipped: true, job: null };
+                }
+            }
+            const allow = await confirmRisk(server, tool, args, risk);
+            if (!allow) return { ok: false, denied: true, risk: risk };
+            if (idempotent) idem.set(idKey, Date.now());
+            const job = startJob(server, tool, args);
+            if (opts.nowait) {
+                job.promise.then(function (j) { deliver(j); });
+                return { ok: true, job: job, nowait: true, risk: risk };
+            }
+            const windowMs = Math.max(1000, Math.min(CONFIG.MCP_REPORT_WINDOW_MS, opts.timeout || CONFIG.MCP_REPORT_WINDOW_MS));
+            const done = await Promise.race([
+                job.promise,
+                new Promise(function (res) { setTimeout(function () { res(null); }, windowMs); })
+            ]);
+            if (done) return { ok: job.state === 'done', job: job, immediate: true, risk: risk };
+            job.promise.then(function (j) { deliver(j); });
+            return { ok: true, job: job, immediate: false, risk: risk };
+        }
+        function jobLine(job) {
+            const sec = Math.round(((job.endedAt || Date.now()) - job.startedAt) / 1000);
+            return job.id + ' · ' + (job.state === 'running' ? '执行中 ' + sec + 's' : (job.state === 'done' ? '完成 ' : '失败 ') + sec + 's') +
+                ' · ' + job.tool + (job.error ? '（' + job.error + '）' : '');
+        }
+        function statusLines() {
+            const cfg = loadCfg();
+            const list = servers();
+            const out = [];
+            out.push('MCP' + (list.length ? '' : ' 未配置：不加载、不请求、不影响任何命令'));
+            for (const s of list) {
+                const st = sessOf(s);
+                out.push('- ' + (s.name || s.id) + ' <' + s.id + '> ' + maskUrl(s.url) + ' · ' +
+                    (s.enabled === false ? '已停用' : (st.ready ? '会话就绪' : '未连接')) +
+                    (st.tools ? ' · ' + st.tools.length + ' 工具' : '') + (st.lastErr ? ' · ⚠ ' + st.lastErr : ''));
+            }
+            out.push('风险模式：' + ({ allow: '全部自动允许', partial: '部分自动允许', never: '不自动允许' }[cfg.riskMode] || cfg.riskMode) +
+                ' · 链式执行：' + (cfg.chain !== false ? '开' : '关') + ' · 进行中作业：' +
+                Array.from(jobs.values()).filter(function (j) { return j.state === 'running'; }).length);
+            return out;
+        }
+        /* 诊断只出现脱敏地址（需求40） */
+        function diag() {
+            const list = servers().map(function (s) {
+                const st = sessOf(s);
+                return {
+                    id: s.id, name: s.name || s.id, url: maskUrl(s.url), enabled: s.enabled !== false,
+                    ready: !!st.ready, tools: st.tools ? st.tools.length : 0,
+                    protocol: st.protocolVersion || '', error: st.lastErr || ''
+                };
+            });
+            return {
+                configured: list.length,
+                riskMode: loadCfg().riskMode,
+                chain: loadCfg().chain !== false,
+                running: Array.from(jobs.values()).filter(function (j) { return j.state === 'running'; })
+                    .map(function (j) { return { id: j.id, tool: j.tool, sec: Math.round((Date.now() - j.startedAt) / 1000) }; }),
+                pendingReports: pendingReport.length,
+                servers: list
+            };
+        }
+        function parseCall(cmd) {
+            const raw = String(cmd.raw || '');
+            const body = cmd.body != null ? String(cmd.body) : '';
+            let head = raw.replace(/<<<[\s\S]*$/, '').replace(/[:：]\s*$/, '').trim();
+            head = head.replace(/^mcp\s+/i, '');
+            return { toks: head.split(/\s+/).filter(Boolean), body: body.trim() };
+        }
+        function parseInlineArgs(s) {
+            const t = String(s == null ? '' : s).trim();
+            if (!t) return null;
+            const i = t.indexOf('{');
+            if (i < 0) return null;
+            try { return JSON.parse(t.slice(i)); } catch (e) { return null; }
+        }
+        function findToolByName(list, name) {
+            const n = String(name || '').toLowerCase();
+            for (const t of list) if (t.name.toLowerCase() === n) return t;
+            for (const t of list) if (t.name.toLowerCase().indexOf(n) >= 0) return t;
+            return null;
+        }
+        function parseToolRef(ref) {
+            const s = String(ref || '');
+            const i = s.indexOf('.');
+            if (i > 0) return { serverRef: s.slice(0, i), toolName: s.slice(i + 1) };
+            return { serverRef: '', toolName: s };
+        }
+        async function doMcp(cmd) {
+            const p = parseCall(cmd);
+            const sub = (p.toks[0] || 'status').toLowerCase();
+            const out = function (lines, summary) {
+                return { ok: true, op: 'mcp', path: '', summary: summary || ('mcp ' + sub), body: lines };
+            };
+            const bad = function (msg, fix) {
+                return { ok: false, op: 'mcp', path: '', line: cmd.line, kind: 'mcp', error: msg, fix: fix || 'mcp help' };
+            };
+            try {
+                if (sub === 'status' || sub === 'list' || sub === 'servers') {
+                    return out(statusLines(), 'MCP 状态（' + servers().length + ' 个服务）');
+                }
+                if (sub === 'add') {
+                    const name = p.toks[1];
+                    const url = p.toks[2];
+                    if (!name || !url) return bad('用法：mcp add <名称> <http://主机:端口/mcp>', 'mcp add NPMCP http://192.168.1.5:8787/mcp');
+                    if (!/^https?:\/\//i.test(url)) return bad('地址必须以 http:// 或 https:// 开头', 'mcp add ' + name + ' http://192.168.1.5:8787/mcp');
+                    const list = servers();
+                    const id = newId(name);
+                    list.push({ id: id, name: name, url: url, enabled: true, addedAt: Date.now() });
+                    saveServers(list);
+                    return out(['已添加 ' + name + ' <' + id + '> → ' + maskUrl(url),
+                        '连接：mcp tools（首次会 initialize 并保存会话）'], 'MCP 已添加 ' + name);
+                }
+                if (sub === 'remove' || sub === 'delete') {
+                    const s = findServer(p.toks[1]);
+                    if (!s) return bad('没有这个 MCP 服务：' + (p.toks[1] || '（空）'), 'mcp servers');
+                    saveServers(servers().filter(function (x) { return x.id !== s.id; }));
+                    sessions.delete(s.id);
+                    return out(['已移除 ' + (s.name || s.id) + '（' + s.id + '）'], 'MCP 已移除');
+                }
+                if (sub === 'enable' || sub === 'disable') {
+                    const s = findServer(p.toks[1]);
+                    if (!s) return bad('没有这个 MCP 服务：' + (p.toks[1] || '（空）'), 'mcp servers');
+                    const list = servers().map(function (x) {
+                        return x.id === s.id ? Object.assign({}, x, { enabled: sub === 'enable' }) : x;
+                    });
+                    saveServers(list);
+                    return out([(s.name || s.id) + ' 已' + (sub === 'enable' ? '启用' : '停用')], 'MCP ' + (sub === 'enable' ? '启用' : '停用'));
+                }
+                if (sub === 'tools') {
+                    if (!hasServers()) return bad('还没配置 MCP 服务（未配置时零影响）', 'mcp add <名称> <http://主机:端口/mcp>');
+                    const list = enabledServers();
+                    if (!list.length) return bad('所有 MCP 服务都已停用', 'mcp enable <名称>');
+                    let query = '', page = 1, limit = CONFIG.MCP_TOOLS_PAGE, refresh = false;
+                    for (const a of p.toks.slice(1)) {
+                        if (/^(page|p)=/.test(a)) page = Math.max(1, parseInt(a.split('=')[1], 10) || 1);
+                        else if (/^limit=/.test(a)) limit = Math.max(1, Math.min(100, parseInt(a.split('=')[1], 10) || CONFIG.MCP_TOOLS_PAGE));
+                        else if (a === 'refresh') refresh = true;
+                        else if (!/=/.test(a)) query += (query ? ' ' : '') + a;
+                    }
+                    const all = [];
+                    for (const s of list) {
+                        const ts = await listAllTools(s, refresh);
+                        for (const t of ts) all.push(t);
+                    }
+                    const q = query.toLowerCase();
+                    const hits = q ? all.filter(function (t) {
+                        return t.name.toLowerCase().indexOf(q) >= 0 || String(t.description || '').toLowerCase().indexOf(q) >= 0;
+                    }) : all;
+                    const start = (page - 1) * limit;
+                    const slice = hits.slice(start, start + limit);
+                    const lines = ['工具 ' + hits.length + ' 个' + (query ? '（匹配「' + query + '」）' : '') + ' · 第 ' + page + ' 页，每页 ' + limit +
+                        (start + limit < hits.length ? '；下一页 page=' + (page + 1) : '；已是最后一页')];
+                    for (const t of slice) {
+                        const r = riskOf(t);
+                        lines.push('- ' + (t.serverName ? t.serverName + '.' : '') + t.name + ' [' + r.level + '] ' +
+                            String(t.description || '').replace(/\s+/g, ' ').slice(0, 90));
+                    }
+                    lines.push('单个 schema：mcp schema <工具名>（不把全部 schema 塞进上下文）');
+                    return out(lines, 'MCP 工具 ' + hits.length + ' 个');
+                }
+                if (sub === 'schema') {
+                    if (!hasServers()) return bad('还没配置 MCP 服务', 'mcp add <名称> <http://主机:端口/mcp>');
+                    const name = p.toks.slice(1).join(' ');
+                    if (!name) return bad('用法：mcp schema <工具名>', 'mcp tools');
+                    for (const s of enabledServers()) {
+                        const list = await listAllTools(s);
+                        const t = findToolByName(list, name);
+                        if (t) {
+                            const r = riskOf(t);
+                            return out([t.name + ' · ' + (s.name || s.id) + ' · 风险 ' + r.level + '（' + r.why + '）',
+                                String(t.description || ''), JSON.stringify(t.inputSchema || {}, null, 2)], 'MCP schema ' + t.name);
+                        }
+                    }
+                    return bad('找不到工具：' + name, 'mcp tools ' + name);
+                }
+                if (sub === 'call') {
+                    if (!hasServers()) return bad('还没配置 MCP 服务（未配置时零影响）', 'mcp add <名称> <http://主机:端口/mcp>');
+                    let rest = p.toks.slice(1);
+                    let nowait = false, timeout = 0;
+                    rest = rest.filter(function (a) {
+                        if (a === 'nowait') { nowait = true; return false; }
+                        if (/^timeout=/.test(a)) { timeout = parseInt(a.split('=')[1], 10) || 0; return false; }
+                        return true;
+                    });
+                    const refTok = rest.shift() || '';
+                    if (!refTok) return bad('用法：mcp call <工具> [nowait] [timeout=毫秒] <<<JSON参数<<<', 'mcp tools');
+                    let args = parseInlineArgs(rest.join(' ')) || parseInlineArgs(p.body);
+                    if (!args) args = p.body ? { text: p.body } : {};
+                    const tref = parseToolRef(refTok);
+                    let server = tref.serverRef ? findServer(tref.serverRef) : null;
+                    let tool = null;
+                    if (server) {
+                        tool = findToolByName(await listAllTools(server), tref.toolName);
+                    } else {
+                        for (const s of enabledServers()) {
+                            const t = findToolByName(await listAllTools(s), tref.toolName);
+                            if (t) { server = s; tool = t; break; }
+                        }
+                    }
+                    if (!server || !tool) return bad('找不到工具：' + refTok, 'mcp tools');
+                    const res = await runCall(server, tool, args, { nowait: nowait, timeout: timeout });
+                    if (res.skipped) return { ok: true, op: 'mcp', path: '', summary: 'MCP 跳过（90 秒内同参数）', kind: 'mcp' };
+                    if (res.denied) return { ok: false, op: 'mcp', path: '', kind: 'mcp', error: '用户拒绝执行 ' + tool.name, fix: '需要时再让用户确认，或调整风险模式' };
+                    const job = res.job;
+                    if (res.nowait) {
+                        return { ok: true, op: 'mcp', path: '', summary: 'MCP 已后台执行 ' + job.id + ' · ' + tool.name,
+                            body: ['任务号 ' + job.id + '（容器生成，AI 只转述）',
+                                '取回：mcp wait ' + job.id + ' / 列表：mcp jobs / 终止：mcp kill ' + job.id,
+                                '完成或失败会自动汇报给 AI'] };
+                    }
+                    if (!res.immediate) {
+                        return { ok: true, op: 'mcp', path: '', summary: 'MCP 超过 30 秒，已转后台 ' + job.id,
+                            body: ['任务号 ' + job.id + '（完成后自动汇报：输入框有草稿则并入你的发送，空闲则单独发一条）',
+                                '取回：mcp wait ' + job.id] };
+                    }
+                    const text = resultText(job);
+                    return { ok: job.state === 'done', op: 'mcp', path: '',
+                        summary: (job.state === 'done' ? 'MCP 完成 ' : 'MCP 失败 ') + job.id + ' · ' + tool.name +
+                            '（' + Math.round((job.endedAt - job.startedAt) / 1000) + 's）',
+                        body: text.split('\n').slice(1), kind: job.state === 'done' ? 'mcp' : 'mcp-fail' };
+                }
+                if (sub === 'wait') {
+                    const ids = p.toks.slice(1).filter(function (a) { return !/^timeout=/.test(a); });
+                    let timeout = 60000;
+                    for (const a of p.toks) if (/^timeout=/.test(a)) timeout = Math.max(1000, parseInt(a.split('=')[1], 10) || 60000);
+                    if (!ids.length) return bad('用法：mcp wait <任务号…> [timeout=毫秒]', 'mcp jobs');
+                    const targets = [];
+                    for (const id of ids) {
+                        const j = jobs.get(id);
+                        if (!j) return bad('没有这个任务号：' + id, 'mcp jobs');
+                        targets.push(j);
+                    }
+                    const deadline = Date.now() + Math.min(timeout, CONFIG.MCP_TIMEOUT_MS);
+                    for (const j of targets) {
+                        if (j.state !== 'running') continue;
+                        const left = Math.max(1000, deadline - Date.now());
+                        await Promise.race([j.promise, new Promise(function (r) { setTimeout(r, left); })]);
+                    }
+                    const lines = [];
+                    let allDone = true;
+                    for (const j of targets) {
+                        lines.push(jobLine(j));
+                        if (j.state === 'running') allDone = false;
+                        else j.reported = true;
+                        if (j.state === 'done' && j.result) {
+                            lines.push(resultText(j).split('\n').slice(1, 40).join('\n'));
+                        }
+                    }
+                    return { ok: allDone, op: 'mcp', path: '', summary: 'MCP wait → ' + targets.length + ' 个作业', body: lines, kind: allDone ? 'mcp' : 'mcp-pending' };
+                }
+                if (sub === 'jobs') {
+                    const list = Array.from(jobs.values()).sort(function (a, b) { return b.startedAt - a.startedAt; });
+                    if (!list.length) return out(['还没有 MCP 作业'], 'MCP 作业 0 个');
+                    return out(list.slice(0, 20).map(jobLine), 'MCP 作业 ' + list.length + ' 个');
+                }
+                if (sub === 'kill') {
+                    const ids = p.toks.slice(1);
+                    if (!ids.length) return bad('用法：mcp kill <任务号…>', 'mcp jobs');
+                    const lines = [];
+                    for (const id of ids) {
+                        const j = jobs.get(id);
+                        if (!j) { lines.push(id + ' · 没有这个任务号'); continue; }
+                        if (j.state !== 'running') { lines.push(id + ' · 已经结束，无需终止'); continue; }
+                        j.state = 'fail';
+                        j.error = '用户终止';
+                        j.endedAt = Date.now();
+                        if (j.timer) { clearInterval(j.timer); j.timer = null; }
+                        statusBarRemove('mcp:' + id);
+                        j.reported = true;
+                        lines.push(id + ' · 已标记终止（协作式：已发出的请求可能仍会返回）');
+                    }
+                    return out(lines, 'MCP kill');
+                }
+                if (sub === 'risk') {
+                    const v = (p.toks[1] || '').toLowerCase();
+                    const map = { allow: 'allow', auto: 'allow', all: 'allow', partial: 'partial', some: 'partial', never: 'never', none: 'never', confirm: 'never' };
+                    const mode = map[v];
+                    if (!mode) return bad('用法：mcp risk allow|partial|never', 'mcp risk partial');
+                    saveCfg({ riskMode: mode });
+                    if (mode === 'allow' && !loadCfg().warnedAuto) {
+                        saveCfg({ warnedAuto: true });
+                        showToast('全部自动允许：安装/删除/签名等高危操作也会放行（仅保留轻提示）', 'warn');
+                    }
+                    return out(['风险模式 → ' + ({ allow: '全部自动允许', partial: '部分自动允许', never: '不自动允许' }[mode])], 'MCP 风险模式已切换');
+                }
+                if (sub === 'chain') {
+                    const v = (p.toks[1] || '').toLowerCase();
+                    if (['on', 'off', '1', '0', 'true', 'false'].indexOf(v) < 0) return bad('用法：mcp chain on|off', 'mcp chain on');
+                    const on = (v === 'on' || v === '1' || v === 'true');
+                    saveCfg({ chain: on });
+                    return out(['链式执行 → ' + (on ? '开（AI 收到结果后可继续自动调用）' : '关（等用户指示）')], 'MCP 链式执行已' + (on ? '开启' : '关闭'));
+                }
+                if (sub === 'help') {
+                    return out([
+                        'mcp status｜servers｜add <名称> <url>｜remove/enable/disable <名称>',
+                        'mcp tools [关键词] [page=N] [limit=N] [refresh]｜mcp schema <工具>',
+                        'mcp call <工具> [nowait] [timeout=毫秒] <<<JSON 参数<<<',
+                        'mcp wait <任务号…>｜mcp jobs｜mcp kill <任务号…>',
+                        'mcp risk allow|partial|never｜mcp chain on|off'
+                    ], 'mcp 用法');
+                }
+                return bad('不认识的 mcp 子命令：' + sub, 'mcp help');
+            } catch (e) {
+                return bad('MCP 请求失败：' + ((e && e.message) || String(e)), 'mcp status');
+            }
+        }
+        return {
+            doMcp: doMcp, servers: servers, hasServers: hasServers,
+            cfg: loadCfg, saveCfg: saveCfg, maskUrl: maskUrl, diag: diag,
+            statusLines: statusLines, takePendingReport: takePendingReport,
+            jobs: jobs, riskOf: riskOf, listTools: listAllTools, findServer: findServer,
+            pending: function () { return pendingReport.length; },
+            resetIdem: function () { idem.clear(); },
+            _internals: { transport: transport, parseMessages: parseMessages, rpc: rpc }
+        };
+    })();
+
 /* >>> 18-ui.js */
     /* ---- 本模块专属常量（原 CONFIG 项；只在本模块用到） ---- */
     const LONG_PRESS_MS = 550;
@@ -14030,7 +14840,8 @@
                 theme: 'auto',       // auto / light / dark
                 palette: DEFAULT_PALETTE,
                 fsMedia: 'gm',       // P3b-2：内容介质 gm / opfs / fsa（绑定文件夹时置为 fsa）
-                autoGrant: true      // P3b-3：绑过文件夹后自动无感续授权（默认开）
+                autoGrant: true,     // P3b-3：绑过文件夹后自动无感续授权（默认开）
+                autosave: true       // 2.16.0：编辑器自动保存（默认开，仅内容变动时触发）
             }, Store.get(STORE_UI_CFG, {}) || {});
             if (THEME_KEYS.indexOf(uiCfg.palette) < 0) uiCfg.palette = DEFAULT_PALETTE;
         }
@@ -14144,6 +14955,109 @@
         const top = Math.max(8, by - 14 - h);
         uiStatus.style.left = left + 'px';
         uiStatus.style.top = top + 'px';
+    }
+
+    /* ------------------------- 状态条（多条 · 侧挂 · 堆叠） -------------------------
+     * 需求9-13：优先挂在悬浮球左侧/右侧并垂直居中；球在左半屏放右侧、在右半屏放左侧，
+     * 两侧都不够就回退到球上方。多条互相独立、垂直堆叠；最多先露出 3 条（新的在上），
+     * 其余靠容器滚动浏览，边缘由 CSS 渐隐。状态条可以盖住聊天内容，但不吃点击。
+     */
+    const SBAR_MAX_VISIBLE = 3;
+    const sbarItems = new Map();     // id -> { id, text, kind, at }
+    let uiSbarStack = null;
+
+    function statusBarSet(id, text, kind) {
+        if (!id) return null;
+        const k = String(id);
+        const cur = sbarItems.get(k);
+        sbarItems.set(k, {
+            id: k,
+            text: String(text == null ? '' : text),
+            kind: kind || 'idle',
+            at: cur ? cur.at : Date.now()
+        });
+        renderStatusBars();
+        return k;
+    }
+    function statusBarUpdate(id, text, kind) {
+        const k = String(id);
+        const cur = sbarItems.get(k);
+        if (!cur) return statusBarSet(k, text, kind);
+        cur.text = String(text == null ? '' : text);
+        if (kind) cur.kind = kind;
+        renderStatusBars();
+        return k;
+    }
+    function statusBarRemove(id) {
+        if (!sbarItems.has(String(id))) return;
+        sbarItems.delete(String(id));
+        renderStatusBars();
+    }
+    function statusBarClearPrefix(prefix) {
+        for (const k of Array.from(sbarItems.keys())) if (k.indexOf(prefix) === 0) sbarItems.delete(k);
+        renderStatusBars();
+    }
+    function statusBarList() {
+        return Array.from(sbarItems.values()).sort(function (a, b) { return b.at - a.at; });
+    }
+    function renderStatusBars() {
+        if (!uiSbarStack) return;
+        const list = statusBarList();
+        uiSbarStack.style.display = list.length ? 'flex' : 'none';
+        let h = '';
+        for (const it of list) {
+            h += '<div class="sbar ' + esc(it.kind) + '"><span class="s-dot"></span><span class="s-tx">' + esc(it.text) + '</span></div>';
+        }
+        uiSbarStack.innerHTML = h;
+        const kids = Array.from(uiSbarStack.children);
+        if (kids.length > SBAR_MAX_VISIBLE) {
+            let sum = 0;
+            for (let i = 0; i < SBAR_MAX_VISIBLE; i++) sum += kids[i].getBoundingClientRect().height;
+            sum += 6 * (SBAR_MAX_VISIBLE - 1);
+            uiSbarStack.style.maxHeight = Math.ceil(sum) + 'px';
+        } else {
+            uiSbarStack.style.maxHeight = 'none';
+        }
+        uiSbarStack.scrollTop = 0;
+        layoutStatusBars();
+    }
+    function layoutStatusBars() {
+        if (!uiSbarStack || !uiBall || !sbarItems.size) return;
+        const vw = window.innerWidth || 360;
+        const vh = window.innerHeight || 640;
+        let b;
+        try { b = uiBall.getBoundingClientRect(); } catch (e) { return; }
+        if (!b || !b.width) return;
+        const width = Math.min(240, Math.max(140, vw - BALL_SIZE - 32));
+        uiSbarStack.style.width = width + 'px';
+        const box = uiSbarStack.getBoundingClientRect();
+        const h = box.height || 44;
+        const gap = 10;
+        const leftRoom = b.left - gap - 8;
+        const rightRoom = vw - b.right - gap - 8;
+        const preferRight = (b.left + b.width / 2) < vw / 2;
+        let left = 0;
+        let mode = 'side';
+        if (preferRight) {
+            if (rightRoom >= width) left = b.right + gap;
+            else if (leftRoom >= width) left = b.left - gap - width;
+            else mode = 'above';
+        } else {
+            if (leftRoom >= width) left = b.left - gap - width;
+            else if (rightRoom >= width) left = b.right + gap;
+            else mode = 'above';
+        }
+        if (mode === 'side') {
+            const top = clamp(b.top + b.height / 2 - h / 2, 8, Math.max(8, vh - h - 8));
+            uiSbarStack.style.left = Math.round(left) + 'px';
+            uiSbarStack.style.top = Math.round(top) + 'px';
+        } else {
+            const l2 = clamp(b.left + b.width / 2 - width / 2, 8, Math.max(8, vw - width - 8));
+            const t2 = Math.max(8, b.top - h - gap);
+            uiSbarStack.style.left = Math.round(l2) + 'px';
+            uiSbarStack.style.top = Math.round(t2) + 'px';
+        }
+        uiSbarStack.classList.toggle('above', mode === 'above');
     }
 
     function setStatus(state, text, opts) {
@@ -14349,9 +15263,12 @@
                 missing: VirtualFS.missingBlobs().map(function (m) { return m.path; })
             };
         } catch (e) { store = { error: String(e && e.message ? e.message : e) }; }
+        // 2.16.0 需求40：MCP 诊断（地址已脱敏，日志不记敏感信息）
+        let mcpDiag = null;
+        try { mcpDiag = Mcp.diag(); } catch (e) { mcpDiag = { error: String((e && e.message) || e) }; }
         return JSON.stringify(Object.assign({
             version: VERSION, proto: PROTO_VERSION, url: location.href, platform: PLATFORM.id
-        }, stats, { storage: store }), null, 2);
+        }, stats, { storage: store, mcp: mcpDiag }), null, 2);
     }
 
     /* ------------------------- 面板骨架 ------------------------- */
@@ -14383,6 +15300,10 @@
         hint.innerHTML = '<div class="h1"></div><div class="h2"></div>';
         root.appendChild(hint);
         uiStatus = hint;
+
+        /* 2.16.0 状态条栈：与悬浮球同层（z-index:2），多条独立堆叠 */
+        uiSbarStack = el('div', 'sbar-stack');
+        root.appendChild(uiSbarStack);
 
         /* 悬浮球：环形进度 + DSW 字样 + 未读角标 */
         const ball = document.createElement('button');
@@ -14419,7 +15340,8 @@
         // 放在里面的话 position:fixed 会相对面板定位，面板收起时计划条跟着跑掉。
         uiPlanBar = el('div', 'planbar');
         uiPlanBar.style.display = 'none';
-        root.appendChild(uiPlanBar);
+        // 2.16.0 需求1：与球同层（z-index:3），DOM 里排在球**之前** → 重叠时球在上
+        root.insertBefore(uiPlanBar, uiBall);
         uiPmScrim = panel.querySelector('.pm-scrim');
         if (uiPmScrim) uiPmScrim.addEventListener('click', function () { closeMenu(); });
 
@@ -14440,11 +15362,15 @@
 
         /* 事件统一委托到 root（shadow 内所有可点元素） */
         root.addEventListener('click', onRootClick, true);
+        root.addEventListener('pointerdown', onRootPress, true);
+        root.addEventListener('pointerup', cancelRootPress, true);
+        root.addEventListener('pointercancel', cancelRootPress, true);
+        root.addEventListener('pointermove', cancelRootPress, true);
 
         window.addEventListener('resize', function () {
             applyBallPosition();
             placeHint();
-            updatePlanDock();      // 2.14.0：输入框位置变了要重新贴合
+            relayoutChrome();      // 2.16.0：计划条贴合 + 状态条跟随（含横竖屏）
         });
 
         applyTheme();
@@ -14462,6 +15388,8 @@
         } else {
             setTimeout(function () { setStatus('idle', '等待第一条命令', { autoHide: 6000 }); }, 600);
         }
+        // 2.16.0 需求4：键盘显隐 / 输入框变高 / 增删附件 / 展开折叠 / 横竖屏都要重算
+        installDockObservers();
     }
 
     /* ------------------------- 2.13.3 首次运行：个性化设置 + 使用说明 -------------------------
@@ -14777,6 +15705,7 @@
         uiState.ballPos.top = clamp(uiState.ballPos.top, M, Math.max(M, vh - BALL_SIZE - M));
         uiBall.style.left = uiState.ballPos.left + 'px';
         uiBall.style.top = uiState.ballPos.top + 'px';
+        try { layoutStatusBars(); } catch (e) {}
         placeHint();
     }
     function setBallProgress(ratio) {
@@ -14910,6 +15839,31 @@
             uiBall.addEventListener('click', function () { togglePanel(); });
         }
     }
+    /* 2.16.0 需求15/37：长按 550ms（与悬浮球一致）在菜单项上生效 —— 撤销项长按出保存点时间轴。 */
+    let lpTimer = null;
+    let lpFiredAt = 0;
+    let lpStart = null;
+    function onRootPress(e) {
+        const t = e.target && e.target.closest ? e.target.closest('[data-lp]') : null;
+        if (!t) return;
+        const act = t.getAttribute('data-lp');
+        lpStart = { x: e.clientX, y: e.clientY };
+        if (lpTimer) clearTimeout(lpTimer);
+        lpTimer = setTimeout(function () {
+            lpTimer = null;
+            lpFiredAt = Date.now();
+            closeMenu();
+            try { handleAction(act, t); } catch (err) {}
+        }, LONG_PRESS_MS);
+    }
+    function cancelRootPress(e) {
+        if (!lpTimer) return;
+        if (e && e.type === 'pointermove' && lpStart &&
+            (Math.abs(e.clientX - lpStart.x) + Math.abs(e.clientY - lpStart.y) > 10)) { /* 划走了 */ }
+        else if (e && e.type === 'pointermove') return;
+        clearTimeout(lpTimer);
+        lpTimer = null;
+    }
     function pulse() {
         try {
             if (!uiBall) return;
@@ -14923,6 +15877,15 @@
     /* ------------------------- 面板开关 ------------------------- */
     function closePanel() {
         if (!uiPanel) return;
+        // 2.16.0 需求19：关面板时若有未保存改动 → 三选一确认
+        if (uiState.view === 'editor' && uiState.editing && typeof editorDirty === 'function' && editorDirty()) {
+            guardEditorLeave(function () { closePanelNow(); });
+            return;
+        }
+        closePanelNow();
+    }
+    function closePanelNow() {
+        if (!uiPanel) return;
         uiPanel.classList.remove('on');
         if (uiRoot) uiRoot.classList.remove('open');
         closeMenu();
@@ -14931,6 +15894,15 @@
     function togglePanel() {
         if (!uiPanel) return;
         const willOpen = !uiPanel.classList.contains('on');
+        if (!willOpen && uiState.view === 'editor' && uiState.editing &&
+            typeof editorDirty === 'function' && editorDirty()) {
+            guardEditorLeave(function () { togglePanelNow(false); });
+            return;
+        }
+        togglePanelNow(willOpen);
+    }
+    function togglePanelNow(willOpen) {
+        if (!uiPanel) return;
         uiPanel.classList.toggle('on', willOpen);
         if (uiRoot) uiRoot.classList.toggle('open', willOpen);
         if (willOpen) {
@@ -15002,15 +15974,17 @@
         ] });
 
         if (inEditor) {
-            /* 上下文：编辑器 —— 文本编辑 / 文件管理 两个子分组 */
+            /* 2.16.0 需求14：「文本编辑」组排在最前，组内顺序 撤销、重做、全选、复制、粘贴、保存；
+             * 只读文件隐藏写入类（撤销/重做/粘贴/保存）。撤销短按=撤销打字，长按 550ms=保存点时间轴。 */
             const rd = !!uiState.editing.readonly;
-            const text = [
-                { t: '全选', icon: ic('selectAll'), a: 'edSelAll' },
-                { t: '复制', icon: ic('copy'), a: 'edCopy' },
-                { t: '粘贴', icon: ic('paste'), a: 'edPaste' }
-            ];
+            const text = [];
+            if (!rd) text.push({ t: '撤销（长按回溯）', icon: ic('undo'), a: 'edUndo', lp: 'edTimeline' });
+            if (!rd) text.push({ t: '重做', icon: ic('redo'), a: 'edRedo' });
+            text.push({ t: '全选', icon: ic('selectAll'), a: 'edSelAll' });
+            text.push({ t: '复制', icon: ic('copy'), a: 'edCopy' });
+            if (!rd) text.push({ t: '粘贴', icon: ic('paste'), a: 'edPaste' });
             if (!rd) text.push({ t: '保存', icon: ic('save'), a: 'save' });
-            groups.push({ t: '文本编辑', items: text });
+            groups.unshift({ t: '文本编辑', items: text });
 
             const fm = [{ t: '返回列表', icon: ic('back'), a: 'back' }];
             if (rd) fm.push({ t: '解除只读并编辑', icon: ic('pen'), a: 'unlockEdit' });
@@ -15054,7 +16028,8 @@
         for (const g of groups) {
             h += '<div class="pm-g"><div class="pm-t">' + esc(g.t) + '</div>';
             for (const it of g.items) {
-                const attr = it.tab ? (' data-tab="' + esc(it.tab) + '"') : (' data-a="' + esc(it.a) + '"');
+                const attr = (it.tab ? (' data-tab="' + esc(it.tab) + '"') : (' data-a="' + esc(it.a) + '"')) +
+                    (it.lp ? (' data-lp="' + esc(it.lp) + '"') : '');
                 h += '<button type="button" class="pm-i' + (it.on ? ' on' : '') + (it.dgr ? ' dgr' : '') + '"' + attr + '>' +
                     '<span class="pm-ic">' + (it.icon || '') + '</span>' +
                     '<span class="pm-lb">' + esc(it.t) + '</span>' +
@@ -15167,21 +16142,150 @@
         return '<span class="pmeta">' + esc(bits.join(' · ')) + '</span>';
     }
 
-    // 2.14.0 需求7：计划条吸附在**宿主输入框**上方。
-    // 找不到输入框（页面还在加载、或平台把输入框换掉了）就退到一个保守的默认高度。
+    /* ------------------------- 2.16.0 计划条定位 -------------------------
+     * 需求3/4/6：贴在**底部编辑区**上沿（输入框 + 附件区 + 工具栏 + 语音条），
+     * 不只是输入框本身；键盘显隐、输入框变高、增删附件、展开折叠、横竖屏都要重算。
+     * 识别优先 DeepSeek 自己的结构，其余平台走通用启发式（输入框祖先容器里的底部兄弟）。
+     * 宽屏左右任一侧 >=300px 时侧贴；两侧都不够回退到输入框上方。
+     */
+    function rectOfVisible(node) {
+        if (!node || !node.getBoundingClientRect) return null;
+        let r;
+        try { r = node.getBoundingClientRect(); } catch (e) { return null; }
+        if (!r || r.width < 8 || r.height < 8) return null;
+        let cs;
+        try { cs = getComputedStyle(node); } catch (e) { cs = null; }
+        if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0)) return null;
+        return r;
+    }
+    function isDeepSeekHost() {
+        try { return /(^|\.)deepseek\.com$/i.test(location.hostname); } catch (e) { return false; }
+    }
+    const DEEPSEEK_ZONE_SELECTORS = [
+        '#chat-input', '[class*="chat-input"]', '[class*="chat_input"]', '[class*="chatInput"]',
+        '[class*="upload"]', '[class*="attach"]', '[class*="toolbar"]', '[class*="tool-bar"]',
+        '[class*="voice"]', '[class*="audio"]', '[class*="composer"]', '[class*="input-wrap"]'
+    ];
+    function editorZoneTop() {
+        const vh = window.innerHeight || 640;
+        const cands = [];
+        const c = findComposer();
+        const cr = c ? rectOfVisible(c) : null;
+        if (cr) cands.push(cr);
+        const near = function (r) {
+            if (!r) return false;
+            if (r.bottom < vh * 0.5) return false;
+            if (cr && r.top < cr.top - 240) return false;
+            if (r.height > 320) return false;
+            return true;
+        };
+        if (c) {
+            let p = c.parentElement, hops = 0;
+            while (p && hops < 4) {
+                let kids = [];
+                try { kids = Array.from(p.children || []); } catch (e) { kids = []; }
+                for (const k of kids) {
+                    if (k === c || (k.contains && k.contains(c))) continue;
+                    const r = rectOfVisible(k);
+                    if (r && near(r)) cands.push(r);
+                }
+                p = p.parentElement; hops++;
+            }
+        }
+        if (isDeepSeekHost()) {
+            for (const sel of DEEPSEEK_ZONE_SELECTORS) {
+                let nodes = [];
+                try { nodes = Array.from(document.querySelectorAll(sel)); } catch (e) { nodes = []; }
+                for (const n of nodes.slice(0, 8)) {
+                    const r = rectOfVisible(n);
+                    if (r && near(r)) cands.push(r);
+                }
+            }
+        }
+        if (!cands.length) return null;
+        let top = cands[0].top;
+        for (const r of cands) if (r.top < top) top = r.top;
+        return Math.min(top, vh);
+    }
     function updatePlanDock() {
-        if (!uiPlanBar) return;
-        let offset = 0;
+        if (!uiPlanBar || uiPlanBar.style.display === 'none') return;
+        const vw = window.innerWidth || 360;
+        const vh = window.innerHeight || 640;
+        const c = findComposer();
+        const cr = c ? rectOfVisible(c) : null;
+        const zoneTop = editorZoneTop();
+        const above = zoneTop == null ? 96 : Math.max(0, vh - zoneTop);
+        const room = Math.max(140, Math.min(vh * 0.6, (zoneTop == null ? vh - 96 : zoneTop) - 24));
+        const sideMin = 300;
+        const leftRoom = cr ? cr.left : 0;
+        const rightRoom = cr ? (vw - cr.right) : 0;
+        const canSide = vw >= 900 && !!cr && Math.max(leftRoom, rightRoom) >= sideMin;
+        uiPlanBar.classList.toggle('side', canSide);
+        if (canSide) {
+            const useLeft = leftRoom >= rightRoom;
+            const width = Math.min(360, Math.max(240, Math.floor((useLeft ? leftRoom : rightRoom) - 20)));
+            uiPlanBar.style.left = Math.max(8, useLeft ? (cr.left - width - 12) : (cr.right + 12)) + 'px';
+            uiPlanBar.style.right = 'auto';
+            uiPlanBar.style.bottom = Math.max(8, vh - cr.bottom) + 'px';
+            uiPlanBar.style.top = 'auto';
+            uiPlanBar.style.width = width + 'px';
+            uiPlanBar.style.paddingBottom = '0px';
+            uiPlanBar.style.setProperty('--pmax', Math.max(160, Math.min(vh * 0.7, cr.bottom - 24)) + 'px');
+        } else {
+            uiPlanBar.style.left = '0px';
+            uiPlanBar.style.right = '0px';
+            uiPlanBar.style.top = 'auto';
+            uiPlanBar.style.width = 'auto';
+            uiPlanBar.style.bottom = '0px';
+            uiPlanBar.style.paddingBottom = (above + 8) + 'px';
+            uiPlanBar.style.setProperty('--pmax', room + 'px');
+        }
+    }
+    let dockRaf = 0;
+    function relayoutChrome() {
+        if (dockRaf) return;
+        const run = function () {
+            dockRaf = 0;
+            try { updatePlanDock(); } catch (e) {}
+            try { layoutStatusBars(); } catch (e) {}
+        };
+        try { dockRaf = window.requestAnimationFrame(run); }
+        catch (e) { dockRaf = setTimeout(run, 16); }
+    }
+    function installDockObservers() {
         try {
-            const c = findComposer();
-            if (c) {
-                const r = c.getBoundingClientRect();
-                const vh = window.innerHeight || 0;
-                if (r && r.height > 0 && vh && r.top < vh) offset = Math.max(0, Math.min(vh * 0.6, vh - r.top));
+            if (window.ResizeObserver) {
+                const ro = new ResizeObserver(function () { relayoutChrome(); });
+                const c = findComposer();
+                if (c) ro.observe(c);
+                if (c && c.parentElement) ro.observe(c.parentElement);
+                window.__dswDockRO = ro;
             }
         } catch (e) {}
-        uiPlanBar.style.setProperty('--pb', (offset + 8) + 'px');
+        try {
+            if (window.MutationObserver) {
+                const c = findComposer();
+                const scope = (c && c.parentElement && c.parentElement.parentElement) || document.body;
+                const mo = new MutationObserver(function () { relayoutChrome(); });
+                mo.observe(scope, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+                window.__dswDockMO = mo;
+            }
+        } catch (e) {}
+        try {
+            const vv = window.visualViewport;
+            if (vv) {
+                vv.addEventListener('resize', relayoutChrome);
+                vv.addEventListener('scroll', relayoutChrome);
+            }
+        } catch (e) {}
+        try { window.addEventListener('orientationchange', function () { setTimeout(relayoutChrome, 140); }); } catch (e) {}
+        try {
+            document.addEventListener('focusin', relayoutChrome);
+            document.addEventListener('focusout', function () { setTimeout(relayoutChrome, 140); });
+        } catch (e) {}
     }
+
+    // 旧版 updatePlanDock 已被上面的 2.16.0 版本取代（贴合底部编辑区 + 侧贴回退）。
     // 2.14.0：划线动画只给「状态刚刚变成已完成」的那一条，而且要活过一帧。
     // 为什么不用「seen 集合」：planTouched() 一次改动会连着 renderPlanBar() + refreshUI()（里面又 render()），
     // 也就是**同一次改动会重画两遍**。单纯用「已见过就不再画」的话，第二遍会把 .fx 抹掉，
@@ -15484,11 +16588,26 @@
     function openFile(p, readonly) {
         const node = VirtualFS.resolve(p);
         if (!node || node.type !== 'file') { showToast('文件不存在：' + p, 'err'); return; }
-        uiState.editing = { path: p, content: String(node.content == null ? '' : node.content), readonly: !!readonly };
-        uiState.view = 'editor';
-        uiState.draft = null;          // 换文件不继承上一个文件的草稿
-        uiState.pasteCaret = null;
-        render();
+        const openNow = function () {
+            uiState.editing = { path: p, content: String(node.content == null ? '' : node.content), readonly: !!readonly };
+            uiState.view = 'editor';
+            uiState.draft = null;          // 换文件不继承上一个文件的草稿
+            uiState.pasteCaret = null;
+            // 2.16.0：换文件要换编辑器自己的撤销历史与「最近保存」基线
+            edAutosaveStop();
+            edHistReset(p, String(node.content == null ? '' : node.content));
+            edLastSavedText = null;
+            edSavedAt = 0;
+            edUnlockAutosave();
+            render();
+        };
+        // 2.16.0 需求19：编辑器里打开另一个文件也要过未保存闸门（同一文件直接重开）
+        if (uiState.view === 'editor' && uiState.editing && uiState.editing.path !== p &&
+            typeof editorDirty === 'function' && editorDirty()) {
+            guardEditorLeave(openNow);
+            return;
+        }
+        openNow();
     }
 
     /* ------------------------- 文件详情页 ------------------------- */
@@ -15502,6 +16621,238 @@
         if (ta) return ta.value;
         if (uiState.draft != null) return uiState.draft;
         return String(st.content == null ? '' : st.content);
+    }
+
+
+    /* ------------------------- 2.16.0 编辑器：本地撤销 / 保存点 / 自动保存 -------------------------
+     * 需求15-20。要点：
+     *   · 撤销短按 = 撤销打字（文件自己的文本历史，不进容器撤销栈 → 需求39 不膨胀撤销步数）；
+     *   · 长按 = 保存点时间轴（只记录手动保存 + 自动保存，倒序，上限 50）；
+     *   · 自动保存默认开、只在内容有变动时触发、间隔 2 分钟、页面隐藏/关闭补存一次；
+     *   · 离开编辑器时若有未保存改动 → 三选一确认；只读 / 未变 / 已自动保存则不弹。
+     */
+    let edHist = null;              // { path, stack: [text], idx }
+    let edHistTimer = null;
+    let edAutosaveTimer = null;
+    let edAutosaveFailed = false;   // 失败后不反复重试（下一次手动保存/改动再解锁）
+    let edSavedAt = 0;
+    let edLastSavedText = null;
+
+    function editorTa() { return uiPanel && uiPanel.querySelector('#ta'); }
+    function editorKeyOf(path) { return STORE_EDITOR_SP + String(path || '/'); }
+
+    function loadSavePoints(path) {
+        const list = Store.get(editorKeyOf(path), []);
+        return Array.isArray(list) ? list : [];
+    }
+    // 需求16：保存点按时间倒序、只留最新 50 条（手动 + 自动都算）
+    function pushSavePoint(path, content, label) {
+        const list = loadSavePoints(path);
+        list.unshift({ at: Date.now(), label: label || '手动', content: String(content == null ? '' : content) });
+        while (list.length > CONFIG.SAVEPOINT_MAX) list.pop();
+        Store.set(editorKeyOf(path), list);
+        return list;
+    }
+
+    function edHistReset(path, text) {
+        if (edHistTimer) { clearTimeout(edHistTimer); edHistTimer = null; }
+        edHist = { path: path, stack: [String(text == null ? '' : text)], idx: 0 };
+    }
+    function edHistPush() {
+        const st = uiState.editing;
+        const ta = editorTa();
+        if (!st || !ta || st.readonly) return;
+        const text = String(ta.value == null ? '' : ta.value);
+        if (!edHist || edHist.path !== st.path) { edHistReset(st.path, text); return; }
+        if (edHist.stack[edHist.idx] === text) return;
+        edHist.stack = edHist.stack.slice(0, edHist.idx + 1);
+        edHist.stack.push(text);
+        if (edHist.stack.length > CONFIG.UNDO_HISTORY_MAX) edHist.stack.shift();
+        edHist.idx = edHist.stack.length - 1;
+    }
+    function edHistSchedule() {
+        if (edHistTimer) clearTimeout(edHistTimer);
+        edHistTimer = setTimeout(function () { edHistTimer = null; edHistPush(); }, 400);
+    }
+    function edApplyHist(text) {
+        const ta = editorTa();
+        if (!ta) return;
+        const caret = ta.selectionStart == null ? 0 : ta.selectionStart;
+        ta.value = text;
+        uiState.draft = text;
+        try { renderEditor(uiPanel.querySelector('.pbody')); } catch (e) {}
+        uiState.focusEd = true;
+        uiState.pasteCaret = Math.min(caret, text.length);
+    }
+    function edUndo() {
+        const st = uiState.editing;
+        if (!st) return;
+        if (st.readonly) { showToast('只读文件不能撤销编辑', 'warn'); return; }
+        if (edHistTimer) { clearTimeout(edHistTimer); edHistTimer = null; edHistPush(); }
+        if (!edHist || edHist.path !== st.path || edHist.idx <= 0) { showToast('没有可撤销的打字', 'warn'); return; }
+        edHist.idx--;
+        edApplyHist(edHist.stack[edHist.idx]);
+        showToast('已撤销打字');
+    }
+    function edRedo() {
+        const st = uiState.editing;
+        if (!st) return;
+        if (st.readonly) { showToast('只读文件不能重做编辑', 'warn'); return; }
+        if (!edHist || edHist.path !== st.path || edHist.idx >= edHist.stack.length - 1) { showToast('没有可重做的打字', 'warn'); return; }
+        edHist.idx++;
+        edApplyHist(edHist.stack[edHist.idx]);
+        showToast('已重做打字');
+    }
+
+    function edSaveStatus(kind, text) {
+        const node = uiPanel && uiPanel.querySelector('.ed-save');
+        if (!node) return;
+        node.className = 'ed-save' + (kind ? ' ' + kind : '');
+        node.textContent = text || '';
+    }
+    function edMarkSaved(text, label) {
+        edLastSavedText = String(text == null ? '' : text);
+        edSavedAt = Date.now();
+        edAutosaveFailed = false;
+        const st = uiState.editing;
+        if (st) st.content = edLastSavedText;
+        if (st) uiState.draft = edLastSavedText;
+        edSaveStatus('', '已保存 ' + fmtClock(edSavedAt) + (label === '自动' ? ' · 自动' : ''));
+    }
+    function editorDirty() {
+        const st = uiState.editing;
+        if (!st || st.readonly) return false;
+        const text = editorText();
+        const base = edLastSavedText == null ? String(st.content == null ? '' : st.content) : edLastSavedText;
+        return text !== base;
+    }
+    function edSave(opts) {
+        opts = opts || {};
+        const st = uiState.editing;
+        if (!st) return false;
+        if (st.readonly) { if (!opts.auto) showToast('只读文件不能保存', 'warn'); return false; }
+        if (opts.auto && !editorDirty()) return false;            // 需求17：仅在内容有变动时触发
+        const text = editorText();
+        const r = VirtualFS.write(st.path, text, {});
+        if (!r || !r.ok) {
+            const msg = (r && r.error) || '保存失败';
+            edSaveStatus('err', '保存失败：' + msg);
+            if (opts.auto) {
+                edAutosaveFailed = true;                          // 失败不反复重试
+                try { pushLog('自动保存失败：' + st.path + '（' + msg + '）', 'error'); } catch (e) {}
+            } else {
+                showToast(msg, 'err');
+            }
+            return false;
+        }
+        edMarkSaved(text, opts.auto ? '自动' : '手动');
+        pushSavePoint(st.path, text, opts.auto ? '自动' : '手动');
+        try { pushLog((opts.auto ? '自动保存 ' : '面板保存 ') + st.path); } catch (e) {}
+        if (!opts.auto) {
+            showToast('已保存');
+            if (!opts.skipRender) render();
+        }
+        return true;
+    }
+    function edAutosaveStop() {
+        if (edAutosaveTimer) { clearInterval(edAutosaveTimer); edAutosaveTimer = null; }
+    }
+    function edAutosaveStart() {
+        edAutosaveStop();
+        if (getUiCfg().autosave === false) { edSaveStatus('', '自动保存已关闭'); return; }
+        edAutosaveTimer = setInterval(function () {
+            if (uiState.view !== 'editor' || !uiState.editing) return;
+            if (edAutosaveFailed) return;
+            try { edSave({ auto: true }); } catch (e) {}
+        }, CONFIG.AUTOSAVE_MS);
+    }
+    // 需求17：页面隐藏或关闭时补存一次
+    function edFlushAutosave() {
+        if (uiState.view !== 'editor' || !uiState.editing) return;
+        if (uiState.editing.readonly || edAutosaveFailed) return;
+        try { edSave({ auto: true }); } catch (e) {}
+    }
+    try {
+        window.addEventListener('pagehide', edFlushAutosave);
+        window.addEventListener('beforeunload', edFlushAutosave);
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'hidden') edFlushAutosave();
+        });
+    } catch (e) {}
+    function edUnlockAutosave() { edAutosaveFailed = false; }
+
+    /* 需求19：离开编辑器的三选一确认（保存并退出 / 不保存退出 / 取消） */
+    function askLeaveEditor(onSave, onDiscard) {
+        if (!uiModal) { onDiscard(); return; }
+        uiModal.innerHTML = '<div class="dlg"><h3>还有未保存的修改</h3><p><b>' + esc(panelTitle()) +
+            '</b> 的改动还没保存。要先保存吗？</p>' +
+            '<div class="row2"><button type="button" class="btn" data-lv="cancel">取消</button>' +
+            '<button type="button" class="btn" data-lv="discard">不保存退出</button></div>' +
+            '<div class="row2"><button type="button" class="btn pri" data-lv="save">保存并退出</button></div></div>';
+        uiModal.classList.add('on');
+        const handler = function (e) {
+            const b = e.target && e.target.closest ? e.target.closest('[data-lv]') : null;
+            if (!b) return;
+            const k = b.getAttribute('data-lv');
+            uiModal.removeEventListener('click', handler, true);
+            uiModal.classList.remove('on');
+            if (k === 'save') onSave();
+            else if (k === 'discard') onDiscard();
+        };
+        uiModal.addEventListener('click', handler, true);
+    }
+    /* 离开闸门：只读 / 内容未变 / 自动保存已成功且无新修改 → 直接走，不弹 */
+    function guardEditorLeave(proceed) {
+        if (uiState.view !== 'editor' || !uiState.editing) { proceed(); return; }
+        if (!editorDirty()) { edAutosaveStop(); proceed(); return; }
+        askLeaveEditor(function () {
+            if (edSave({ skipRender: true })) { edAutosaveStop(); proceed(); }
+            else renderBody();
+        }, function () {
+            uiState.draft = null;
+            edAutosaveStop();
+            proceed();
+        });
+    }
+
+    /* 需求15/16：长按撤销 → 保存点时间轴（最新在上，点击后二次确认回退） */
+    function openSaveTimeline() {
+        const st = uiState.editing;
+        if (!st) return;
+        const list = loadSavePoints(st.path);
+        uiState.spList = list;
+        let h = '<div class="sh-t">保存点 · 最新在上</div>' +
+            '<div class="spt">共 ' + list.length + ' 条（上限 ' + CONFIG.SAVEPOINT_MAX + '）· 点一条回退</div>';
+        if (!list.length) h += '<div class="empty">还没有保存点：手动保存或等自动保存</div>';
+        for (let i = 0; i < list.length; i++) {
+            const sp = list[i];
+            h += '<button data-sp="' + i + '" class="spi"><span class="k' + (sp.label === '自动' ? ' auto' : '') + '">' +
+                esc(sp.label) + '</span><span class="t">' + esc(fmtClock(sp.at)) + '</span></button>';
+        }
+        uiSheet.innerHTML = h;
+        uiSheet.classList.add('on');
+        uiMask.classList.add('on');
+    }
+    function spRevert(i) {
+        const st = uiState.editing;
+        const list = uiState.spList || [];
+        const sp = list[i];
+        closeSheet();
+        if (!st || !sp) return;
+        confirmAsk({
+            title: '回退到 ' + fmtClock(sp.at) + ' 的' + sp.label + '保存点？',
+            text: '编辑区会换成那一次保存的内容（还没落盘，可再保存或继续撤销）。',
+            ok: '回退',
+            cb: function () {
+                const ta = editorTa();
+                if (!ta) return;
+                edHistPush();
+                ta.value = sp.content;
+                uiState.draft = sp.content;
+                try { renderEditor(uiPanel.querySelector('.pbody')); } catch (e) {}
+                showToast('已回退到 ' + fmtClock(sp.at));
+            }
+        });
     }
 
     // 读剪贴板（异步）。WebView 里可能弹权限框或直接拒绝 —— 都留给调用方降级提示。
@@ -15562,18 +16913,6 @@
         });
     }
 
-    function edSave() {
-        const st = uiState.editing;
-        if (!st) return;
-        const text = editorText();
-        const r = VirtualFS.write(st.path, text, {});
-        if (!r || !r.ok) { showToast((r && r.error) || '保存失败', 'err'); return; }
-        pushLog('面板保存 ' + st.path);
-        showToast('已保存');
-        uiState.draft = null;
-        uiState.editing = { path: st.path, content: text, readonly: false };
-        render();
-    }
 
     function renderEditor(body) {
         const st = uiState.editing;
@@ -15623,7 +16962,11 @@
         gutter.scrollTop = ta.scrollTop;
         ta.addEventListener('scroll', function () { gutter.scrollTop = ta.scrollTop; });
         ta.addEventListener('input', function () {
-            if (!readonly) uiState.draft = ta.value;
+            if (!readonly) {
+                uiState.draft = ta.value;
+                edUnlockAutosave();      // 有新的改动 → 允许下一次自动保存重试
+                edHistSchedule();        // 需求15：撤销短按 = 撤销打字
+            }
             paintGutter();
             updateStatus();
         });
@@ -15644,6 +16987,9 @@
         status.appendChild(lineEl);
         status.appendChild(charEl);
         status.appendChild(byteEl);
+        // 2.16.0 需求18：保存状态就在这里 —— 成功显示时间，失败标红
+        const saveEl = el('span', 'ed-save', edSavedAt ? ('已保存 ' + fmtClock(edSavedAt)) : '');
+        status.appendChild(saveEl);
         status.appendChild(el('span', 'sp'));
         status.appendChild(el('span', '', 'UTF-8'));
         status.appendChild(el('span', '', 'LF'));
@@ -15681,6 +17027,16 @@
             const caret = uiState.pasteCaret;
             uiState.pasteCaret = null;
             setTimeout(function () { try { ta.selectionStart = ta.selectionEnd = Math.min(caret, ta.value.length); } catch (e) {} }, 0);
+        }
+
+        /* 2.16.0：进入编辑器时接管本地撤销历史与自动保存
+         *  - 只读文件不建历史、不自动保存；
+         *  - 每次重画编辑区都不重置历史（除非换了文件），否则撤销一步就丢。 */
+        if (!readonly && ta) {
+            if (!edHist || edHist.path !== st.path) edHistReset(st.path, startText);
+            edAutosaveStart();
+        } else {
+            edAutosaveStop();
         }
     }
 
@@ -16045,6 +17401,41 @@
             '<button class="btn sm dgr" data-a="clearPlan">清空计划</button></div>',
             planPr.total ? (planPr.done + '/' + planPr.total) : '');
 
+        /* 2.16.0 编辑器 */
+        h += accItem('set.editor', '编辑器',
+            swRow('autosave', '自动保存', '有改动才存，每 2 分钟一次；失败标红不重试', cfg.autosave !== false) +
+            '<div class="set col"><span class="lb">撤销与保存点<span class="sub">' +
+            '菜单 › 文本编辑 › 撤销：短按撤销打字；长按 550ms 打开保存点时间轴（只记手动与自动保存，最多 ' + CONFIG.SAVEPOINT_MAX + ' 条，最新在上）。' +
+            '自动保存不进撤销栈。</span></span></div>');
+
+        /* 2.16.0 MCP（未配置时零影响：不加载、不请求、不占回执） */
+        {
+            const mc = Mcp.cfg();
+            const ml = Mcp.servers();
+            const riskName = { allow: '全部自动允许', partial: '部分自动允许', never: '不自动允许' };
+            let inner = '<div class="set col"><span class="lb">风险模式：' + esc(riskName[mc.riskMode] || mc.riskMode) +
+                '<span class="sub">全部自动允许会放行安装/删除/签名等高危操作，只保留一条轻提示；建议保持部分自动</span></span></div>' +
+                '<div class="set btns">' +
+                '<button class="btn sm' + (mc.riskMode === 'allow' ? ' pri' : '') + '" data-a="mcpRisk" data-v="allow">全部自动</button>' +
+                '<button class="btn sm' + (mc.riskMode === 'partial' ? ' pri' : '') + '" data-a="mcpRisk" data-v="partial">部分自动</button>' +
+                '<button class="btn sm' + (mc.riskMode === 'never' ? ' pri' : '') + '" data-a="mcpRisk" data-v="never">不自动</button></div>' +
+                '<div class="set btns"><button class="btn sm' + (mc.chain !== false ? ' pri' : '') + '" data-a="mcpChain" data-v="on">链式执行开</button>' +
+                '<button class="btn sm' + (mc.chain === false ? ' pri' : '') + '" data-a="mcpChain" data-v="off">链式执行关</button></div>' +
+                '<div class="set col"><span class="lb">服务<span class="sub">' +
+                esc(ml.length ? ml.map(function (x) { return (x.name || x.id) + ' → ' + Mcp.maskUrl(x.url) + (x.enabled === false ? '（已停用）' : ''); }).join('\n')
+                    : '未配置：不加载、不请求、不影响任何命令') + '</span></span></div>' +
+                '<div class="form"><input class="inp" id="mcpName" placeholder="名称，如 NPMCP" autocomplete="off">' +
+                '<input class="inp" id="mcpUrl" placeholder="http://192.168.1.5:8787/mcp" autocomplete="off"></div>' +
+                '<div class="set btns"><button class="btn sm pri" data-a="mcpAddUi">添加服务</button>' +
+                '<button class="btn sm" data-a="mcpNpPreset">填入 NP Manager 示例</button>' +
+                '<button class="btn sm" data-a="mcpToolsUi">列出工具</button>' +
+                '<button class="btn sm" data-a="mcpStatusUi">刷新状态</button></div>' +
+                '<div class="set col"><span class="lb">给 AI 的用法<span class="sub">' +
+                'AI 用 mcp tools 分页找工具、mcp schema 现取单个 schema、mcp call 调用（nowait / wait / jobs / kill）；' +
+                '手册 §12 与 help mcp 里有完整说明。</span></span></div>';
+            h += accItem('set.mcp', 'MCP', inner, ml.length ? (ml.length + ' 个') : '未配置');
+        }
+
         /* 数据 */
         h += accItem('set.data', '数据',
             '<div class="set col"><span class="lb">检查点<span class="sub">' + esc(Ckpt.text()).replace(/\n/g, '<br>') + '</span></span></div>' +
@@ -16364,6 +17755,7 @@
         /* 长按弹上下文菜单后，松手浏览器会补发一次 click（此时命中的可能是刚弹出的遮罩）：
            700ms 内一律吞掉，免得又打开文件、或把菜单/面板立刻关掉。 */
         if (Date.now() - rowLongPressAt < 700) return;
+        if (Date.now() - lpFiredAt < 700) return;   // 2.16.0：长按已触发（撤销→时间轴），吞掉随后的 click
         /* 引导层优先：它盖在最上面，里面的任何点击都**不往下传**
          * （否则点开关会同时触发面板的委托，关掉面板或弹两次确认框）。 */
         if (uiOnboard && uiOnboard.contains(t)) { maybeCloseOnboardByBackdrop(e); handleOnboardClick(t); return; }
@@ -16396,6 +17788,8 @@
             if (it && it.f) setTimeout(function () { try { it.f(); } catch (err) { showToast('执行失败：' + (err && err.message ? err.message : err), 'err'); } }, 10);
             return;
         }
+        const spBtn = t.closest('[data-sp]');
+        if (spBtn && inSheet) { spRevert(parseInt(spBtn.getAttribute('data-sp'), 10)); return; }
         const th = t.closest('[data-th]');
         if (th) {
             saveUiCfg({ palette: th.getAttribute('data-th') });
@@ -16418,11 +17812,17 @@
 
         const tab = t.closest('[data-tab]');
         if (tab) {
-            uiState.tab = tab.getAttribute('data-tab');
-            uiState.view = 'list';
-            uiState.editing = null;
-            uiState.toolbarMore = false;
-            render();
+            const nextTab = tab.getAttribute('data-tab');
+            const applyTab = function () {
+                uiState.tab = nextTab;
+                uiState.view = 'list';
+                uiState.editing = null;
+                uiState.toolbarMore = false;
+                render();
+            };
+            // 2.16.0 需求19：从编辑器切页签也要过「未保存」闸门
+            if (uiState.view === 'editor' && uiState.editing) { closeMenu(); guardEditorLeave(applyTab); return; }
+            applyTab();
             return;
         }
         const cr = t.closest('[data-a="cr"]');
@@ -16437,7 +17837,16 @@
             return;
         }
         const tog = t.closest('[data-tog]');
-        if (tog) { toggleCfg(tog.getAttribute('data-tog')); return; }
+        if (tog) {
+            const key = tog.getAttribute('data-tog');
+            toggleCfg(key);
+            // 2.16.0：自动保存开关立即生效（不用重开编辑器）
+            if (key === 'autosave') {
+                if (getUiCfg().autosave === false) edAutosaveStop();
+                else if (uiState.view === 'editor') edAutosaveStart();
+            }
+            return;
+        }
         const a = t.closest('[data-a]');
         if (a) { handleAction(a.getAttribute('data-a'), a); return; }
         const row = t.closest('.row');
@@ -16658,8 +18067,61 @@
                 });
                 break;
             }
-            case 'back': uiState.view = 'list'; uiState.editing = null; render(); break;
+            case 'back':
+                // 2.16.0 需求19：返回列表也要过未保存闸门
+                guardEditorLeave(function () { uiState.view = 'list'; uiState.editing = null; edAutosaveStop(); render(); });
+                break;
             case 'save': edSave(); break;
+            case 'edUndo': edUndo(); break;
+            case 'edRedo': edRedo(); break;
+            case 'edTimeline': openSaveTimeline(); break;
+            case 'mcpRisk': {
+                const v = node && node.getAttribute ? node.getAttribute('data-v') : '';
+                const mode = v === 'allow' ? 'allow' : (v === 'never' ? 'never' : 'partial');
+                Mcp.saveCfg({ riskMode: mode });
+                if (mode === 'allow') showToast('全部自动允许：高危操作也会放行（仅保留轻提示）', 'warn');
+                else showToast('MCP 风险模式已更新');
+                render();
+                break;
+            }
+            case 'mcpChain': {
+                const on = !(node && node.getAttribute && node.getAttribute('data-v') === 'off');
+                Mcp.saveCfg({ chain: on });
+                showToast('链式执行已' + (on ? '开启' : '关闭'));
+                render();
+                break;
+            }
+            case 'mcpNpPreset': {
+                const nm = uiPanel && uiPanel.querySelector('#mcpName');
+                const ur = uiPanel && uiPanel.querySelector('#mcpUrl');
+                if (nm) nm.value = 'NPMCP';
+                if (ur && !ur.value) ur.value = 'http://192.168.1.5:8787/mcp';
+                showToast('把地址换成 NP Manager 里复制的局域网地址再点「添加服务」');
+                break;
+            }
+            case 'mcpAddUi': {
+                const nm = uiPanel && uiPanel.querySelector('#mcpName');
+                const ur = uiPanel && uiPanel.querySelector('#mcpUrl');
+                const name = nm && nm.value ? String(nm.value).trim() : '';
+                const url = ur && ur.value ? String(ur.value).trim() : '';
+                if (!name || !url) { showToast('名称与地址都要填', 'warn'); break; }
+                Mcp.doMcp({ op: 'mcp', raw: 'mcp add ' + name + ' ' + url, line: 0 }).then(function (r) {
+                    showToast(r.ok ? ('已添加 ' + name) : (r.error || '添加失败'), r.ok ? '' : 'warn');
+                    pushReceipt((r.summary || '') + ((r.body && r.body.length) ? ('\n' + r.body.join('\n')) : ''), r.ok ? '' : 'warn');
+                    render();
+                }, function (e) { showToast('添加失败：' + ((e && e.message) || e), 'err'); });
+                break;
+            }
+            case 'mcpToolsUi':
+            case 'mcpStatusUi': {
+                const line = a === 'mcpToolsUi' ? 'mcp tools' : 'mcp status';
+                Mcp.doMcp({ op: 'mcp', raw: line, line: 0 }).then(function (r) {
+                    pushReceipt((r.summary || 'MCP') + '\n' + ((r.body || []).join('\n')), r.ok ? '' : 'warn');
+                    showToast(r.summary || 'MCP');
+                    render();
+                }, function (e) { showToast('MCP 失败：' + ((e && e.message) || e), 'err'); });
+                break;
+            }
             case 'edSelAll': edSelectAll(); break;
             case 'edCopy': edCopy(); break;
             case 'edPaste': edPaste(); break;
@@ -16680,7 +18142,17 @@
                     } catch (e) { showToast('附件失败：' + (e && e.message ? e.message : e), 'err'); }
                 }
                 break;
-            case 'delFile': if (uiState.editing) uiDelete(uiState.editing.path, function () { uiState.view = 'list'; uiState.editing = null; }); break;
+            case 'delFile':
+                if (uiState.editing) {
+                    const target = uiState.editing.path;
+                    guardEditorLeave(function () {
+                        edAutosaveStop();
+                        uiState.view = 'list';
+                        uiState.editing = null;
+                        uiDelete(target, function () { });
+                    });
+                }
+                break;
             case 'copyEg':
                 copyText('```dsw\nwrite /hello.md\n<<<\n你好\n<<<\n```');
                 showToast('示例已复制');
@@ -16891,7 +18363,9 @@
             // 现在是两条独立的接管理由：协议注入（新对话首条）或 计划附件（计划模式下的每一条）。
             const wantInject = (typeof injectionPending === 'function') && injectionPending();
             const planBlock = planUserAttachText(userText);
-            if (!wantInject && !planBlock) return false;
+            // 2.16.0 需求31：MCP 结果在等「用户点发送」时并入同一条
+            const mcpCount = (typeof Mcp !== 'undefined' && Mcp.pending) ? Mcp.pending() : 0;
+            if (!wantInject && !planBlock && !mcpCount) return false;
 
             // 2.13.0：上下文里提示词 / 目录卡都已在 → 本次不接管（避免把同一份东西再塞一遍）
             let fresh = null;
@@ -16902,10 +18376,12 @@
 
             // #7 先设接管窗口，再改输入框、再发送：用户这一次按下产生的其它事件全部无效
             injectGuardUntil = Date.now() + 1600;
-            // 新对话首条（协议注入）与普通条（仅计划附件）都要带上最新计划 —— 需求17 要求「每一条」。
+            // 新对话首条（协议注入）与普通条（仅计划附件 / MCP 结果）都要带上。
+            const mcpBlock = (mcpCount && typeof Mcp !== 'undefined') ? Mcp.takePendingReport() : '';
+            const tail = [planBlock, mcpBlock].filter(Boolean).join('\n\n');
             const combined = fresh
-                ? (buildInjection(userText, fresh) + (planBlock ? '\n\n' + planBlock : ''))
-                : (userText + '\n\n' + planBlock);
+                ? (buildInjection(userText, fresh) + (tail ? '\n\n' + tail : ''))
+                : (userText + (tail ? '\n\n' + tail : ''));
             const setResult = setComposerText(composer, combined);
             if (!setResult || !setResult.ok) {
                 pushLog((fresh ? '新对话注入' : '计划状态附加') + '失败：' + ((setResult && setResult.error) || '写输入框失败'), 'warn');
@@ -17099,6 +18575,21 @@
             dock: updatePlanDock
         };
         // #3 会话切换 / 新建对话 → 自动初始化
+        // 2.16.0 MCP：命令入口 + 状态/诊断（地址脱敏）+ 待并入结果
+        DSW.mcp = {
+            run: Mcp.doMcp,
+            status: Mcp.statusLines,
+            diag: Mcp.diag,
+            cfg: Mcp.cfg,
+            saveCfg: Mcp.saveCfg,
+            servers: Mcp.servers,
+            riskOf: Mcp.riskOf,
+            maskUrl: Mcp.maskUrl,
+            jobs: Mcp.jobs,
+            pending: Mcp.pending,
+            takePending: Mcp.takePendingReport,
+            resetIdem: Mcp.resetIdem
+        };
         DSW.conv = {
             check: checkConversationSwitch, reset: resetConvTrack,
             state() { return { key: convTrack.key, sawMessages: convTrack.sawMessages }; },
