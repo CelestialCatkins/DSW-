@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         DSW 容器工作区 2.0
 // @namespace    dsw-vfs
-// @version      2.16.0
+// @version      2.17.0
 // @description  AI 对话容器工作区 2.0：执行域协议 ```dsw 围栏（或 <dsw>…</dsw>）+ 锚点令牌 + 错误即答案 + 降级阶梯 + 出站节奏器（多平台通用）；2.1.0 修复批内 undo/redo 丢数据、文件查看页改文本编辑器布局（全选/复制/粘贴）；2.2.0 会话状态（锚点/路径令牌/幂等/检查点/账本/计划/注入记录）迁入 IndexedDB——这些键天生按会话（即按平台）隔离，IDB 的 origin 隔离恰好等于它们该有的可见范围，GM 存储只留容器元数据与跨平台小状态；无 IDB 时自动退回 GM，行为与旧版一致；2.3.0 文件内容哈希改在写入那一刻算一次并缓存在节点上（唯一写入漏斗 setFileContent），落盘时不再对全容器内容重复哈希——修掉「一个 2MB 文件 + 每轮一条命令 = 每轮白算 4MB 哈希」这个最大的卡顿来源，另加两道哨兵防止缓存与内容脱节；2.4.0 容器树持久化改成「快照 + 增量日志 + 提交指针」：每批只写 O(改动) 的增量而不是整棵树，提交指针单键翻转即原子提交，崩溃最多丢最后一批而绝不读到半截状态；存储读不回来时进入只读保护而不是清空容器；内容在存储里缺失不再被静默洗成空文件；2.5.0 内容（blob）的存哪里收敛成可替换介质层：默认 GM（与旧版一致），可切 OPFS（大容量、读进内存后仍同步可读、写为异步落盘），不可用自动退回；元数据永远留在同步介质上——提交协议的失败语义必须同步，这条不能动；2.6.0 撤销档从「每档一份全树」改成「基线档 + 增量档（fwd/bwd ops）」，稳态每批只写 O(本批改动)（实测省 16 倍），可达集不必再解析历史全树，撤销/重做的存储与 GC 成本同时降下来；旧格式档只要带 tree 就照旧可用；2.7.0 容器内容可以存进你自己的手机文件夹（File System Access）：绑定后内容自动搬过去（搬家前后逐块核对，确认无误才回收旧介质），清浏览器数据不再丢、可备份、可跨平台复用；权限到期时**进入只读保护而不是悄悄降级**——否则新内容会分裂到两个介质里、那部分将永久读不到；面板「设置 → 容器存放位置」一键绑定/授权/解绑，解绑不删你文件夹里的东西；2.8.0 绑定的文件夹里现在能**直接看到容器文件**——活文件按原路径一一镜像（容器的 /src/a.js = 文件夹里的 src/a.js），可用文件管理器查看/修改/备份；你在文件夹里改了或新增的文件，下次打开会自动读回容器（系统区 /__sys 只出不进，避免旧手册把新版顶回去）；2.9.0 绑定文件夹后不再需要手动授权：页面加载时先静默检查（权限还在就直接接上，刷新页面不丢），真掉了就在你下一次碰屏幕的手势里自动补授权（浏览器还记得就不会弹窗，切回前台也会先复查一次），明确点「不允许」则本页不再打扰；同时修掉一个会丢可见性的启动顺序 bug——之前 init 把「用哪个介质」的配置读在 FsMedia.ready() **之后**，导致绑过文件夹却在用油猴存储（内容读不到、写入还会分裂），现在以「句柄在不在」为准；权限在落盘途中到期时任务放回队列等授权回来补写，不再静默丢弃；文件页顶部新增一行纯文字显示容器当前存放位置（油猴储存 / 你自己的文件夹名）；2.9.1 重写系统提示词与手册并逐条对照代码核实：修掉 10 处与程序不符的表述（域外「永不执行」其实有只读兜底、幂等只覆盖 write/edit/patch 而不是所有写命令、每个 delete 都要执行域而不只是 recursive、计划进度是独立附块不在回执内、「■ 后暂停」有条件、dry 不在回执首行、单段正文 edit 也吃、提示词里的「手册已附在下方」是有开关的、拼写自愈要求名字 ≥4 字母），提示词压到 15 行且可单独使用，手册去掉重复陈述、加小节交叉引用；新增 _p6_manual_selftest.js 把文档里的数字与代码常量绑死（改常量不改文档就测试失败），并检查小节编号、§引用、Markdown 强调符号落单等静态歧义源；2.9.2 修掉「自愈不透明」两类问题：冒险型自愈（锚点重定位 / edit 模糊匹配）额度**按命令**重算，不再整批共用一次（前一条用掉后，后一条不再被连坐）；会改树的命令各自带单命令存点，写到一半失败时只回滚这一条（回执加 `⤺` 行），非 atomic 批不再留下半写副作用；可疑正文的 `**`/`__` 检测改为只认**词边界的强调标记**（不再把 `a__b__c__d` 这类标识符误报）；手册与首发提示词把「正文必须再包一层三反引号围栏」写成硬规则，并点明 `[i]→iii` 这类渲染改写与 `base64` 通道；2.10.0 系统区（/__sys）不再镜像进你的手机文件夹——系统文件（手册/计划）由容器自己管，落到手机存储里会被文件管理器误删，而容器的「内部区只读」保护只作用于容器内、管不到容器外那份副本，所以干脆不写出去；升级后首次打开会顺手清掉旧版留在文件夹里的 __sys 目录（含空目录），用户自己的文件一个不动；2.11.0 手册改成**按需投喂**：首轮默认只发自足提示词 + 一张目录卡（手册分几节、怎么按节取），不再把几千字全文一次灌进去（记不住、记不准）；随时 `help` 看目录、`help §2`/`help 关键词` 现取**那一节**、`read /__sys/手册.md` 取全文；哪一轮踩了坑，回执附一行「手册§N」（指向真正相关的那节，带冷却不刷屏）；会话头几轮每轮再轮播一条最小契约（有限次），少量多次地固化。整本注入仍可在设置里打开；2.12.0 系统提示词与手册要求：AI 交给程序识别/执行的内容（整段执行域）一律用代码围栏（```dsw）包住，平台不再渲染围栏内字符，正文因此不必再自己套内层围栏；程序识别同步支持「围栏即执行域」与「围栏内 [[dsw]]」，围栏闭合改成校验同字符且长度 ≥ 开始符（修掉四反引号域里正文的 ``` 被误当闭合、正文被截断的 bug）；修掉 append 命中 base64 提示时引用未声明变量 out 的 TDZ 崩溃；启动时在第一个 await 之前先显示「程序正在启动…」提示，就绪或失败后收起；2.13.0 按「文件文件系统优化清单」重做一批交互：执行域标记换成主流 Agent 已适配的形状（**带 dsw 标签的代码围栏**为主、`<dsw> … </dsw>` 标签为等价写法，旧标记 `[[dsw]]` / `⟦dsw⟧` / `===dsw===` 不再识别也不兼容 —— 写到时明确报错并给新写法，绝不静默；围栏语言标签后可直接跟修饰符）；`grep -n "x" /a.html` 这类参数顺序写反不再降级为全容器搜索，直接报错并给正确写法（`find` 同理），不认识的参数一律把整条回执降为 PARTIAL 而不再报成成功；`plan done last`（同批 `plan add` 后可直接标最后一条）；对计划文件用 write/edit 会被 DENY 并明确指向 plan 命令；上下文里已有的提示词/目录卡/微课不再重复投喂；正文强调标记告警改为「计数 + 落单位置」双条件并提供 `--no-warn`；`read /f full`（等价 `--no-elide`）一次读全，省一次 outbox 二次读取；`expect` 断言失败联动回滚本批已写内容（回执列出被回滚路径，并建议改用 expect 而不是难定位的 atomic）；`AUTO` 回执必附 diff（脚本自动改了什么都逐行给）；`upload /目录` 或 `upload /a /b` 一次打成 zip 附件发出（面板文件页也能一键打包当前目录），并在提示词/手册里优先推荐批量命令与批量附件以减少交互、降低风控；面板头部在「更多」旁边新增「收起工作区」图标按钮；提示词与手册全文同步重写（提示词 14 行）；2.13.1 修「换了新符号反而认不出命令」：协议归一的斜杠组写成了必选（`(\/{1,2})`），导致 `<DSW>` 这类开标记压根匹配不上、整域被当成域外文本；执行域改为**围栏 + `<dsw>`/`</dsw>` 双保险**（围栏让平台原样保留内容，标签是纯文本标记 —— 平台只保留代码内容、丢掉围栏标记时仍能识别）；补上全角 `＜dsw＞` 归一；「命令写在代码块里却没识别出执行域」不再静默，而是回一条 NOOP 直接告诉 AI 正确的域写法；2.13.3 首次运行会弹一层「个性化设置 + 使用说明」：当场选内容存在哪里（油猴存储 / 浏览器沙盒 OPFS / 手机或电脑文件夹，gm↔opfs 现在也能直接互切，内容自动搬过去并逐块核对）、选五套配色与浅/深/跟随系统、勾行为偏好（自动回传 / 新对话注入 / 节奏器 / 震动 / 提示音 / 终止符后暂停 / 计划模式），并把悬浮球单击·双击·长按·拖动、面板头部 ✕ 与 ⋮ 各自的入口位置、AI 下命令的写法一次说清；点「稍后再说」不记已看过（下次开页面还会再问），点「完成」才写入标记；引导层随时能从「⋮ → 首次运行设置与说明」或「设置 → 概览」重新打开。引导层里的点击不往下传给面板委托，不会误关面板或弹两次确认框；2.13.4 重做引导层的自适应与排版：不再在页面一加载就自己掉下来（那层遮罩会挡住正在看的对话），改成球旁一句「点球打开工作区」，**用户主动点开工作区时才弹**；存储位置从三段描述文字改成三个可点按钮 + 只解释当前选中的那一个；悬浮球手势与面板入口从两列表格改成自适应网格（窄屏自动变一列）；抽屉改成「头部 / 可滚主体 / 常驻底部按钮」三段式，头尾不随内容滚走，最大高度用 dvh 避开手机地址栏跳动；可见文案从 1400 余字压到 400 字内，每条偏好副标题 ≤14 字，长的只留关键词（“首次使用”这种引导层不该讲细节，细节留给设置页与手册）；2.13.5 修引导层在手机上的两处排版崩坏：「偏好」栏的文字竖着排、选项横向溢出——根因是我把七行开关塞进了一个 `.set` 容器，而 `.set` 本身是 `display:flex`，于是七行被排成**一横排**；另外 flex 子项默认 `min-width:auto`，中文的 min-content 就是一个字，容器一窄就把标签压成每行一个字。现在偏好分组换成块级的 `.ob-rows`（只负责分组与分隔线），并给标签列显式 `min-width:0` + `overflow-wrap:anywhere`；同时把选项组下限从 96px 收到 82px、网格下限从 140px 收到 128px，320px 窄屏也能排满而不挤压；2.13.6 首次运行的打开顺序收紧为硬保证：**首屏绝不自动展开工作区、也绝不自动弹引导层**，只有用户点悬浮球 → 面板打开 → 引导层才跟着打开（createUI 里显式 closePanel 一次，2.13.4 那句「点球打开工作区」继续挂在球旁）；补掉延迟 120ms 里用户又收回面板时引导层仍盖上来的竞态；「内容存在哪里」这一栏在**设置之后、完成之前**加一根旋转加载动画（引导层与设置页共用同一段 HTML 与同一个忙标志，搬家/授权要几百毫秒到几秒，没有它用户会以为按钮没生效而连点）；切 gm/opfs、绑定、授权、解绑四个动作合并到 runMediaOp 一条路径 —— 引导层里切介质以前完全没上锁（连点两下就是两次并发搬家，内容会分裂）、showDirectoryPicker 同步抛错时忙标志永远清不掉导致按钮永久失效，这两类都已修掉；删掉与 toggleCfg 重复的 applyCfgSideEffects 与无人调用的 setFolderNameForTest；2.14.0 计划模式重新定位：**只负责展示与上下文同步，不再是权限闸门**——开计划时 AI 的 write/edit/delete/mkdir 全部照常（原来「计划模式：写操作已拦截」那一层连同 planDenied 一起删掉了；系统区只读是另一回事，仍照拦，而且现在报的是它自己的理由、不再被计划模式的理由盖住）；**AI 可自主 plan on / plan off**，不再需要用户确认；计划窗口从面板头下方**改为吸附在宿主输入框上方**（挂到 root 而不是 panel 里——panel 带 transform，会成为 fixed 的包含块，放在里面面板一收计划条就跟着跑），默认折叠且只占左侧半宽、右侧半宽留空给宿主页面的「向下滚动」按钮（容器 pointer-events:none，只有 .pin 吃点击），展开时占满整行；条目补上**更新时间与备注**（按条目文字存一份会话级元数据，不污染给 AI 读的 plan.md），新增 `plan edit <定位> <新内容>` 与 `plan note <定位> <备注>`；状态标为已完成时播一道**划线动画**（未完成/进行中不划）——这里踩到一个坑：一次改动会重画两遍（planTouched → renderPlanBar + refreshUI → render），单纯用「见过就不画」会让动画一帧都没画就没了，改成转换时把条目挂进一个短窗口，同一次改动的所有重画都保留动画、窗口过后不再重播；**用户每发一条消息都会自动附上最新计划状态**（新对话首条的协议注入路径也一并附上；与回执那条通道共用「自动同步计划状态」一个开关），所以 AI 与用户看到的始终是同一份、下一轮就是最新的；2.14.1 修引导层「点一下开关就回到最上方」：refreshOnboard 整块重建 innerHTML 时把 .ob-b 连同它的 scrollTop 一起销毁了（开关、配色、明暗、介质按钮全部中招），现在重画前记住位置、重画后还原；并降低**折叠态**计划条高度（49px → 38px）：折叠时收掉 3px 进度条（x/y 与百分比已表达进度）、标题行收紧到 36px、徽标缩小；触控区不跟着缩（项目硬约束 ≥44px），用 .psum::after 往下补 8px 透明热区；2.14.2 首次运行点「完成」不再自动发送系统提示 —— 以前引导层收尾直接调 handleAction("inject") 把提示词+手册排进出站队列，于是用户刚看完引导层、一个字没打，聊天框里就凭空多出一条机器人消息。现在点完成只关层、记已看过，并提示「新对话发第一条消息时会自动附带协议说明」；协议信息仍在新对话里用户第一次点发送时与那句话合成**同一条**发出（用户不输入就永远不发）；2.14.3 引导面板的节奏器开关改名为「节奏器等待」并改准说明：原来叫「节奏器 · 发太快时自动降速」，一是与设置页同一个开关两个叫法，二是节奏器并不「降速」——降速的是用户自己，容器做的是**发太快时先等一等**，说清了才不会被误解成影响 AI 回答速度；2.14.4 DeepSeek 加固：思考区（.ds-think-content 一类）整棵子树不再进正文 —— R1「深度思考」里写的 ```dsw 草稿不会被当命令执行（答案正文 ds-assistant-message-main-content 照旧取全）；页面正在重挂输入区 / 输入区不可见时，执行命令与点发送都先等一等（有上限，超时放行并留痕，随后 60s 冷却），不在重渲染的中间态上盲推；非 DeepSeek 平台闸门直通，行为与 2.14.3 一致；2.14.5 豆包适配（按豆包前端产物实测，证据快照见 _fixtures/doubao-evidence.txt）：消息正文认 data-testid="message_text_content"、用户气泡按 send-msg-bubble 类区分、输入框认 chat_input_input、发送键认 chat_input_send_button、「正在生成」认 chat_input_local_break_button（纯图标按钮，靠文案匹配原本抓不到，于是防打断与「等回复输出完」两道闸门在豆包上形同虚设）、思考区认 message_thinking/message_loading、附件认 upload-file-input（豆包现在能直接 upload 进聊天）；顺带把「平台声明的选择器」做成通用钩子（composerSelector / sendSelector / stopSelector / thinkingSelector），其它平台不声明就完全走原路，行为不变；2.14.7 提示词与手册定稿（精炼）/ atomic 禁用定稿：
 // 2.14.8 附件用途正名与全文取材走附件：附件是**发给 AI 读的**（用户打不开也不需要看）；系统提示词与手册新增硬规则——要了解文件的全部内容一律 `upload /路径` 把文件作为附件发给 AI 自己读，read 只用于片段与行号定位；upload 命令说明、交付回执文案、面板附件菜单、read 全文回执提示同步改口；read/回执按请求严格回传（去省略）并入本版；版本号升至 2.14.8
 // 2.15.0 并行脚本作业 + 「大步慢跑」默认工作方式：新增 exec / wait / jobs / kill —— 脚本写在容器里由 AI 执行（dsw.* 读写走 VirtualFS 正门、内部区同样只读，dsw.pool 有界并行、console 与返回值进回执、写失败按单命令存点回滚），nowait 同批多开后台并行、wait 多个作业一次合并取回（开工与收结果各占一次交互）；执行链异步化（executeBatch / runMessage 改 async，handleMessage 从「re-enter 即 skip」改为排队串行，等待窗口绝不清消息）；失败回执也携带作业日志；回执层多步改动（≥3 路径未开计划）冷却提示默认计划模式；幂等重发保护覆盖 exec；首发提示词与手册新增硬规则：大步慢跑（一轮一批、能并行就并行、wait 汇总）与复杂/多步骤/严格顺序任务默认先 plan on 列计划照单推进；手册新增 §3.2 并行脚本作业（dsw API 用法），§3 命令表加脚本行、§7 危险命令并入 exec、§8 加默认开计划、§11 速查加脚本行，冷启动微课补两条；版本号升至 2.15.0
 // 2.16.0 计划条/状态条/文件编辑器/MCP 客户端：计划条与悬浮球同层（z-index:3）且球在上、不再遮面板，贴合输入框上方并避让附件区/工具栏/语音条（DeepSeek 按结构识别、其余平台通用启发式），键盘显隐/输入框变高/增删附件/展开折叠/横竖屏实时重算，展开态限高内滚+底部按钮常驻，宽屏两侧够宽时侧贴、不够回退上方；暂停态颜色完全跟随主题主色（边框/图标/环形进度同 var(--ac)）；新增状态条栈：优先挂在球左/右侧并垂直居中（球在左半屏放右侧，反之亦然）、两侧不足回退上方，多条独立堆叠、最多露出 3 条其余滚动+边缘渐隐、视觉可覆盖聊天但不吃点击，MCP 执行中显示「MCP 执行中 x分x秒」；文件编辑器菜单「文本编辑」组置顶（撤销/重做/全选/复制/粘贴/保存，只读只留全选/复制），撤销短按撤销打字、长按 550ms 出保存点时间轴（倒序、上限 50、二次确认回退、只记手动+自动保存），自动保存默认开、仅内容变动触发、2 分钟、pagehide/beforeunload/隐藏补存，成功在状态栏报时间、失败标红不反复重试；关闭面板/切页签/返回列表/打开另一文件/删除当前文件/刷新页面六条离开路径未保存时三选一确认（只读/未变/已自动保存不弹）；新增通用 MCP 客户端（仅 Streamable HTTP，含 SSE）：GM_xmlhttpRequest + @connect 跨域，initialize→保存 Mcp-Session-Id→initialized，会话失效自动重建并提示；工具分页/搜索、单个 schema 按需；call 支持内联/定界 JSON 与 nowait/wait/jobs/kill；风险分级优先读 annotations、缺失查内置表，三档全局风险模式（全部自动仍留 toast，默认不选）；只读/幂等 90 秒同参跳过；≤30 秒直接回执、>30 秒先回任务号，有草稿并入用户发送、空闲完成即单发，失败也汇报；链式执行默认开可关；未配置零影响；手册新增 §12 与 help mcp；诊断地址脱敏；mcp 列入执行域硬约束（能改设备文件，与写命令同级）；版本号升至 2.16.0
+// 2.17.0（编辑器 / 状态条 / 面板 / MCP / 附件）：① 彻底修掉回溯叠加 Bug —— renderEditor 每次重画前清空 pbody，回溯多少次都只有一个编辑区；取消「长按撤销」隐藏手势，菜单里「撤销」（只撤销打字）与「历史回溯」（版本时间轴）拆成两个独立按钮；历史回溯改为双向时间轴（当前草稿在最上，保存点最新在上、旧在下，竖线+圆点，可原地前后跳，不删任何版本）；设置 › 概览的「可撤销」改成「历史时间轴」，按档倒序可视化，点任意一档双向 seek。② 状态条改成半透明毛玻璃胶囊（backdrop-filter blur + color-mix 跟主题色），执行中带旋转图标与主题色进度条；吸附逻辑重写：球在右半屏贴左、球在左半屏贴右、两侧都不足才回退球正上方，左右吸附时垂直中心与球对齐；多条独立、最新在上、最多露 3 条其余内部滚动 + 上下 mask 渐隐；容器与胶囊 pointer-events:none，绝不挡底层点击；MCP 执行单独一条「MCP 执行中 x分x秒」胶囊独立倒计时。③ 关闭面板（含悬浮球收起）即重置视图，下次打开必回文件页；设置 › MCP 直接列出已有服务（名称/脱敏地址/连接状态），每行可检测/启停/移除，检测结果进状态条。④ upload / attachToComposer 加格式防呆：白名单外自动转 .txt 或 .<ext>.base64.txt 再放进输入框，回执里说明转换原因；版本号升至 2.17.0
 // 首发提示词改为精炼版（你是 DSW 容器操作员），手册改为§1～§11 精炼文案；
 // atomic 改为整条消息 DENY（识别到即拒绝，不执行任何域），回执给固定改法；
 // 手册 §1 表格 atomic 改为「禁止使用；整批保真用 expect」，§2 告警条与 §11 对齐；
@@ -78,7 +79,7 @@
      * 01 配置 / 常量 / 存储层
      * ====================================================================== */
 
-    const VERSION = '2.16.0';
+    const VERSION = '2.17.0';
     const PROTO_VERSION = 'DSW2';
 
     const CONFIG = {
@@ -5121,6 +5122,28 @@
         setFileContent: setFileContent,   // P2：唯一的内容写入漏斗（hash/hlen/size 随之更新）
         undoSave: undoSave,
         undoIdx: function () { return undoIdx; },
+        // 2.17.0：容器历史时间轴（最新在上）——只读元数据，给设置 › 概览画时间轴用
+        undoMeta() {
+            const out = [];
+            for (let k = undoIdx.last; k >= undoIdx.first; k--) {
+                const rec = Store.get(UNDO_PREFIX + k, null);
+                out.push({
+                    idx: k,
+                    at: (rec && rec.at) || 0,
+                    label: (rec && rec.label) || '',
+                    current: k === undoIdx.cursor
+                });
+            }
+            return out;
+        },
+        // 2.17.0：跳到任意一档（向前=redo、向后=undo），复用同一套还原逻辑
+        undoSeek(cursor) {
+            const target = Math.max(undoIdx.first, Math.min(undoIdx.last, cursor | 0));
+            if (target === undoIdx.cursor) return { ok: true, body: '已经在这一步（#' + target + '）' };
+            return target < undoIdx.cursor
+                ? fsUndo(undoIdx.cursor - target)
+                : fsRedo(target - undoIdx.cursor);
+        },
         // 测试/导入导出用：把撤销栈清回「只有一个空档 #0」的基线
         undoReset() {
             for (const k of Store.keys()) if (typeof k === 'string' && k.indexOf(UNDO_PREFIX) === 0) Store.del(k);
@@ -7977,7 +8000,13 @@
         try {
             if (typeof attachToComposer === 'function') {
                 const att = attachToComposer(zipName, blob, 'application/zip');
-                if (att && att.ok) deliv = { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + zipName + ' ' + sizeText + '，含 ' + list.length + ' 个文件 —— 点发送发出，附件由 AI 读取' };
+                if (att && att.ok) deliv = {
+                    ok: true, attach: true,
+                    summary: '⇧ 已放进输入框（附件）' + (att.name || zipName) + ' ' + sizeText +
+                        '，含 ' + list.length + ' 个文件' + (att.note ? '（' + att.note + '）' : '') +
+                        ' —— 点发送发出，附件由 AI 读取',
+                    warn: att.warn || []
+                };
                 else {
                     const made = downloadBlob(blob, zipName);
                     deliv = {
@@ -13439,7 +13468,65 @@
     /* ---------- 交付端口（core 的 upload 调用这里） ----------
      * 双模式：先试**页面附件入口**（平台声明了 attach.fileInput）把文件放进聊天；
      * 不行再回退浏览器下载，并在回执里说清是哪一种、为什么。碰 document/File/DataTransfer 的都在这里。
+     *
+     * 2.17.0 格式防呆：平台只收 PDF / DOC / 图片 / 文本（各平台略有差异），
+     * 其它格式硬塞只会收到「包含暂未支持的文件格式」。所以在交给 <input type=file> 之前先归一：
+     *   · 白名单内        → 原样放进输入框；
+     *   · 白名单外、文本   → 自动改名 .txt 再放（内容一字不改）；
+     *   · 白名单外、二进制 → 转成 .<ext>.base64.txt（说明头 + base64）再放。
+     * 回执里写明「原格式不支持，已自动转成 X」，用户与 AI 都不会再看到平台那句报错。
      */
+    const ATTACH_OK_EXT = ('pdf doc docx xls xlsx ppt pptx zip ' +
+        'png jpg jpeg gif webp bmp svg ' +
+        'txt md markdown csv tsv json jsonl log xml yml yaml html htm css ' +
+        'js mjs cjs ts tsx jsx py java c cpp h hpp go rs rb php sh bash sql ' +
+        'ini toml conf cfg env diff patch').split(' ');
+    function attachExtOf(name) {
+        const m = /\.([a-z0-9]{1,8})$/i.exec(String(name || ''));
+        return m ? m[1].toLowerCase() : '';
+    }
+    function attachExtOk(ext) { return !!ext && ATTACH_OK_EXT.indexOf(ext) >= 0; }
+    function textToBase64(str) {
+        try { return btoa(unescape(encodeURIComponent(String(str)))); }
+        catch (e) { return String(str).replace(/[^\x00-\xff]/g, '?'); }
+    }
+    function bytesToBase64(u8) {
+        try {
+            let out = '';
+            const CH = 0x8000;
+            for (let i = 0; i < u8.length; i += CH) out += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+            return btoa(out);
+        } catch (e) { return ''; }
+    }
+    function prepareAttachment(name, content, mime) {
+        const safeName = String(name || 'file.txt');
+        const ext = attachExtOf(safeName);
+        if (attachExtOk(ext)) return { name: safeName, content: content, mime: mime, converted: false, why: '' };
+        const base = safeName.replace(/\.[^./\\]*$/, '') || 'file';
+        // Blob/File：同步拿不到字节，原样交给平台（zip 在白名单里，正常不会走到这里）
+        if (typeof Blob === 'function' && content instanceof Blob) {
+            return { name: safeName, content: content, mime: mime, converted: false, why: '' };
+        }
+        const text = String(content == null ? '' : content);
+        const binary = text.indexOf('\u0000') >= 0;
+        if (binary) {
+            return {
+                name: base + '.' + (ext || 'bin') + '.base64.txt',
+                content: 'DSW 附件（原格式 .' + (ext || 'bin') + ' 平台不支持，已自动转为 base64 文本）\n' +
+                    '原文件名：' + safeName + '\n解码下面内容即可还原原文件\n\n' + textToBase64(text),
+                mime: 'text/plain;charset=utf-8',
+                converted: true,
+                why: '.' + (ext || 'bin') + ' 平台不支持，已转成 base64 文本'
+            };
+        }
+        return {
+            name: base + '.txt',
+            content: text,
+            mime: 'text/plain;charset=utf-8',
+            converted: true,
+            why: (ext ? ('.' + ext) : '无扩展名') + ' 平台可能不支持，已转成 .txt 文本'
+        };
+    }
     function attachToComposer(name, content, mime) {
         try {
             const cfg = (typeof PLATFORM !== 'undefined' && PLATFORM && PLATFORM.attach) || null;
@@ -13449,12 +13536,17 @@
             const input = document.querySelector(sel);
             if (!input) return { ok: false, why: '页面上找不到文件输入框' };
             if (typeof File !== 'function' || typeof DataTransfer !== 'function') return { ok: false, why: '环境不支持 File/DataTransfer' };
-            const file = new File([content], name, { type: mime || cfg.mime || 'text/plain;charset=utf-8' });
+            const prep = prepareAttachment(name, content, mime);
+            const file = new File([prep.content], prep.name, { type: prep.mime || cfg.mime || 'text/plain;charset=utf-8' });
             const dt = new DataTransfer();
             dt.items.add(file);
             input.files = dt.files;
             input.dispatchEvent(new Event('change', { bubbles: true }));
-            return { ok: true, how: 'attach' };
+            return {
+                ok: true, how: 'attach', name: prep.name,
+                converted: !!prep.converted, note: prep.why || '',
+                warn: prep.converted ? [prep.why + '；下次请直接写文本或 pdf/图片'] : []
+            };
         } catch (e) {
             return { ok: false, why: (e && e.message) || '附件写入失败' };
         }
@@ -13464,7 +13556,14 @@
         const sizeText = fmtSize(byteLen(content));
         const att = attachToComposer(name, content);
         if (att.ok) {
-            return { ok: true, attach: true, summary: '⇧ 已放进输入框（附件）' + name + ' ' + sizeText + ' —— 点发送发出，附件由 AI 读取（用户无需打开）' };
+            const sent = att.name && att.name !== name ? (name + ' → ' + att.name) : name;
+            return {
+                ok: true, attach: true,
+                summary: '⇧ 已放进输入框（附件）' + sent + ' ' + sizeText +
+                    (att.note ? '（' + att.note + '）' : '') +
+                    ' —— 点发送发出，附件由 AI 读取（用户无需打开）',
+                warn: att.warn || []
+            };
         }
         const made = downloadBlob(new Blob([content], { type: 'text/plain;charset=utf-8' }), name);
         return {
@@ -13560,21 +13659,42 @@
         '.hint.cooling{border-left-color:var(--er)}',
         '.hint.paused{border-left-color:var(--wn)}',
 
-        /* 2.16.0 状态条：多条独立、侧挂悬浮球左右并垂直居中；最多露出 3 条，其余滚动浏览，
-         * 上下边缘做透明度渐隐；视觉上可覆盖聊天内容，但不吃点击（pointer-events:none）。 */
+        /* 2.17.0 状态条：半透明毛玻璃胶囊（Pill）。
+         * · 只显示、不吃点击：容器与胶囊都是 pointer-events:none（可覆盖聊天内容，绝不挡点击）；
+         * · 多条独立、最新的在最上，最多露出 3 条，其余在容器内部滚动，上下边缘用 mask 渐隐；
+         * · 颜色与进度指示器全部取主题色 var(--ac)，不写死任何色值。 */
         '.sbar-stack{position:fixed;left:0;top:0;z-index:2;display:none;flex-direction:column;gap:6px;',
         'pointer-events:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;',
-        '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 12px,#000 calc(100% - 12px),transparent 100%);',
-        'mask-image:linear-gradient(180deg,transparent 0,#000 12px,#000 calc(100% - 12px),transparent 100%)}',
-        '.sbar{flex:none;max-width:100%;display:flex;align-items:flex-start;gap:7px;padding:7px 10px;',
-        'background:var(--sf);border:1px solid var(--ln);border-left:3px solid var(--dim);border-radius:9px;',
-        'box-shadow:0 5px 18px rgba(0,0,0,.26);font-size:12px;line-height:1.4;word-break:break-word}',
-        '.sbar .s-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dim);margin-top:4px}',
-        '.sbar.run{border-left-color:var(--ac)}.sbar.run .s-dot{background:var(--ac)}',
-        '.sbar.ok{border-left-color:var(--ok)}.sbar.ok .s-dot{background:var(--ok)}',
-        '.sbar.warn{border-left-color:var(--wn)}.sbar.warn .s-dot{background:var(--wn)}',
-        '.sbar.err{border-left-color:var(--er)}.sbar.err .s-dot{background:var(--er)}',
-        '.sbar .s-tx{flex:1;min-width:0}',
+        'scrollbar-width:none;-ms-overflow-style:none;',
+        '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%);',
+        'mask-image:linear-gradient(180deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)}',
+        '.sbar-stack::-webkit-scrollbar{width:0;height:0}',
+        '.sbar{position:relative;flex:none;max-width:100%;display:flex;align-items:center;gap:7px;',
+        'padding:8px 13px 8px 11px;border-radius:999px;overflow:hidden;',
+        'background:var(--sf);background:color-mix(in srgb,var(--sf) 76%,transparent);',
+        '-webkit-backdrop-filter:blur(14px) saturate(1.7);backdrop-filter:blur(14px) saturate(1.7);',
+        'border:1px solid color-mix(in srgb,var(--fg) 12%,transparent);',
+        'box-shadow:0 6px 22px rgba(0,0,0,.16);color:var(--fg);',
+        'font-size:12px;line-height:1.4;word-break:break-word;pointer-events:none}',
+        '.sbar .s-tx{flex:1 1 auto;min-width:0}',
+        '.sbar .s-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dim)}',
+        '.sbar .s-spin{flex:none;width:12px;height:12px;border-radius:50%;',
+        'border:1.6px solid color-mix(in srgb,var(--ac) 28%,transparent);border-top-color:var(--ac);',
+        'animation:sbspin .8s linear infinite}',
+        '@keyframes sbspin{to{transform:rotate(360deg)}}',
+        '.sbar .s-prog{position:absolute;left:0;right:0;bottom:0;height:2px;',
+        'background:linear-gradient(90deg,transparent,var(--ac),transparent);opacity:.85;',
+        'animation:sbprog 1.6s ease-in-out infinite}',
+        '@keyframes sbprog{0%{transform:translateX(-60%)}100%{transform:translateX(60%)}}',
+        '.sbar.run .s-dot{background:var(--ac)}',
+        '.sbar.ok .s-dot{background:var(--ok)}',
+        '.sbar.warn .s-dot{background:var(--wn)}',
+        '.sbar.err .s-dot{background:var(--er)}',
+        '.sbar.ok{border-color:color-mix(in srgb,var(--ok) 42%,transparent)}',
+        '.sbar.warn{border-color:color-mix(in srgb,var(--wn) 48%,transparent)}',
+        '.sbar.err{border-color:color-mix(in srgb,var(--er) 52%,transparent)}',
+        '.sbar.run{border-color:color-mix(in srgb,var(--ac) 46%,transparent)}',
+
         /* 保存点时间轴（编辑器长按撤销）：倒序列表，最新在上 */
         '.spt{font-family:var(--mono);font-size:11px;color:var(--dim);padding:2px 2px 8px}',
         '.spi{display:flex;align-items:center;gap:8px;min-height:46px;padding:6px 4px;border-bottom:1px solid var(--ln);cursor:pointer}',
@@ -13582,6 +13702,36 @@
         '.spi .k{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid currentColor;color:var(--ac)}',
         '.spi .k.auto{color:var(--dim)}',
         '.spi .t{font-family:var(--mono);font-size:12px}',
+        /* 时间轴（历史回溯 / 容器撤销历史）：竖线 + 圆点，最新在上、最旧在下 */
+        '.tl{position:relative;margin:2px 0 8px;padding-left:18px}',
+        '.tl:before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:2px;border-radius:2px;',
+        'background:linear-gradient(180deg,var(--ac),color-mix(in srgb,var(--ac) 18%,transparent))}',
+        '.tl-i{position:relative;display:flex;align-items:flex-start;gap:9px;width:100%;min-height:46px;',
+        'padding:8px 4px;text-align:left;border:0;background:none;color:var(--fg);cursor:pointer}',
+        '.tl-i:hover{background:var(--bg)}',
+        '.tl-i .tl-dot{position:absolute;left:-17px;top:15px;width:9px;height:9px;border-radius:50%;',
+        'background:var(--sf);border:2px solid var(--ln);box-sizing:border-box}',
+        '.tl-i.cur .tl-dot{background:var(--ac);border-color:var(--ac);box-shadow:0 0 0 3px color-mix(in srgb,var(--ac) 22%,transparent)}',
+        '.tl-i.fut{opacity:.5}',
+        '.tl-i.cur{background:color-mix(in srgb,var(--ac) 10%,transparent);border-radius:8px}',
+        '.tl-i .tl-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}',
+        '.tl-i .k{font-family:var(--mono);font-size:10px;color:var(--ac);align-self:flex-start;',
+        'padding:0 5px;border-radius:4px;border:1px solid currentColor}',
+        '.tl-i .k.auto{color:var(--dim)}',
+        '.tl-i .t{font-family:var(--mono);font-size:12px;color:var(--fg)}',
+        '.tl-i .d{font-size:11px;color:var(--dim);word-break:break-all}',
+        /* MCP 服务列表（设置 › MCP）：名称 / 地址 / 连接状态 */
+        '.mcp-l{display:flex;flex-direction:column;gap:6px;padding:6px 0}',
+        '.mcp-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--ln);border-radius:9px;background:var(--sf)}',
+        '.mcp-row .m-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--dim)}',
+        '.mcp-row.ok .m-dot{background:var(--ok)}.mcp-row.err .m-dot{background:var(--er)}',
+        '.mcp-row.run .m-dot{background:var(--ac)}',
+        '.mcp-row.off{opacity:.6}',
+        '.mcp-row .m-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}',
+        '.mcp-row .m-n{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.mcp-row .m-u{font-family:var(--mono);font-size:10px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.mcp-row .m-s{flex:none;font-size:11px;color:var(--dim);text-align:right;max-width:45%}',
+        '.mcp-row.ok .m-s{color:var(--ok)}.mcp-row.err .m-s{color:var(--er)}',
 
         /* Toast */
         '.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(8px);z-index:7;',
@@ -14370,6 +14520,19 @@
             return job.id + ' · ' + (job.state === 'running' ? '执行中 ' + sec + 's' : (job.state === 'done' ? '完成 ' : '失败 ') + sec + 's') +
                 ' · ' + job.tool + (job.error ? '（' + job.error + '）' : '');
         }
+        /* 2.17.0：单个服务的连接状态（设置 › MCP 列表直接显示名称/地址/状态） */
+        function connStatus(id) {
+            const s = servers().filter(function (x) { return x.id === id; })[0];
+            if (!s) return null;
+            const st = sessOf(s);
+            let running = 0;
+            jobs.forEach(function (j) { if (j.state === 'running' && j.serverId === s.id) running++; });
+            return {
+                id: s.id, name: s.name || s.id, url: s.url, enabled: s.enabled !== false,
+                ready: !!st.ready, tools: st.tools ? st.tools.length : 0,
+                err: st.lastErr || '', at: st.toolsAt || 0, running: running
+            };
+        }
         function statusLines() {
             const cfg = loadCfg();
             const list = servers();
@@ -14652,7 +14815,7 @@
             }
         }
         return {
-            doMcp: doMcp, servers: servers, hasServers: hasServers,
+            doMcp: doMcp, servers: servers, hasServers: hasServers, connStatus: connStatus,
             cfg: loadCfg, saveCfg: saveCfg, maskUrl: maskUrl, diag: diag,
             statusLines: statusLines, takePendingReport: takePendingReport,
             jobs: jobs, riskOf: riskOf, listTools: listAllTools, findServer: findServer,
@@ -14813,6 +14976,9 @@
         sheetItems: null,
         menuOpen: false,         // 右上角 ⋮ 菜单展开态
         acc: {},                 // 手风琴折叠态：分组 key → true(展开)
+        spList: null,            // 编辑器历史回溯：保存点列表（最新在上）
+        spDraft: null,           // 编辑器历史回溯：打开时间轴那一刻的未保存草稿
+        histPos: -1,             // 历史回溯当前位置：-1 = 当前草稿，0 = 最新保存点
         ballPos: null,
         unread: false
     };
@@ -15000,13 +15166,23 @@
     function statusBarList() {
         return Array.from(sbarItems.values()).sort(function (a, b) { return b.at - a.at; });
     }
+    function sbarIconHTML(it) {
+        // 进行中的（含 MCP 执行）给旋转图标，其余给状态点；颜色跟随主题色
+        if (it && it.kind === 'run') return '<span class="s-spin" aria-hidden="true"></span>';
+        return '<span class="s-dot" aria-hidden="true"></span>';
+    }
     function renderStatusBars() {
         if (!uiSbarStack) return;
-        const list = statusBarList();
+        const list = statusBarList();            // 最新的在最上（statusBarList 已按 at 倒序）
         uiSbarStack.style.display = list.length ? 'flex' : 'none';
+        if (!list.length) { uiSbarStack.innerHTML = ''; return; }
         let h = '';
         for (const it of list) {
-            h += '<div class="sbar ' + esc(it.kind) + '"><span class="s-dot"></span><span class="s-tx">' + esc(it.text) + '</span></div>';
+            h += '<div class="sbar ' + esc(it.kind) + '" data-sbar="' + esc(it.id) + '">' +
+                sbarIconHTML(it) +
+                '<span class="s-tx">' + esc(it.text) + '</span>' +
+                (it.kind === 'run' ? '<span class="s-prog" aria-hidden="true"></span>' : '') +
+                '</div>';
         }
         uiSbarStack.innerHTML = h;
         const kids = Array.from(uiSbarStack.children);
@@ -15021,6 +15197,8 @@
         uiSbarStack.scrollTop = 0;
         layoutStatusBars();
     }
+    /* 吸附：球在右半屏 → 状态条贴左边；球在左半屏 → 贴右边；两侧都不够宽才回退到球正上方。
+     * 左右吸附时垂直中心始终与悬浮球对齐。容器 pointer-events:none，永远不吃点击。 */
     function layoutStatusBars() {
         if (!uiSbarStack || !uiBall || !sbarItems.size) return;
         const vw = window.innerWidth || 360;
@@ -15028,36 +15206,35 @@
         let b;
         try { b = uiBall.getBoundingClientRect(); } catch (e) { return; }
         if (!b || !b.width) return;
-        const width = Math.min(240, Math.max(140, vw - BALL_SIZE - 32));
-        uiSbarStack.style.width = width + 'px';
-        const box = uiSbarStack.getBoundingClientRect();
-        const h = box.height || 44;
-        const gap = 10;
-        const leftRoom = b.left - gap - 8;
-        const rightRoom = vw - b.right - gap - 8;
-        const preferRight = (b.left + b.width / 2) < vw / 2;
-        let left = 0;
-        let mode = 'side';
-        if (preferRight) {
-            if (rightRoom >= width) left = b.right + gap;
-            else if (leftRoom >= width) left = b.left - gap - width;
-            else mode = 'above';
-        } else {
-            if (leftRoom >= width) left = b.left - gap - width;
-            else if (rightRoom >= width) left = b.right + gap;
-            else mode = 'above';
+        const gap = 10, M = 8;
+        const cap = Math.min(240, Math.max(140, vw - 32));
+        const leftRoom = b.left - gap - M;
+        const rightRoom = vw - b.right - gap - M;
+        const ballOnRight = (b.left + b.width / 2) >= vw / 2;
+        const order = ballOnRight ? ['left', 'right'] : ['right', 'left'];
+        let width = cap, left = 0, mode = 'above';
+        for (const side of order) {
+            const room = side === 'left' ? leftRoom : rightRoom;
+            if (room < 140) continue;                    // 这一侧太窄：换另一侧再判断
+            width = Math.min(cap, room);
+            left = side === 'left' ? (b.left - gap - width) : (b.right + gap);
+            mode = 'side';
+            break;
         }
+        uiSbarStack.style.width = Math.round(width) + 'px';
+        const h = uiSbarStack.offsetHeight || 44;
         if (mode === 'side') {
-            const top = clamp(b.top + b.height / 2 - h / 2, 8, Math.max(8, vh - h - 8));
-            uiSbarStack.style.left = Math.round(left) + 'px';
+            const top = clamp(b.top + b.height / 2 - h / 2, M, Math.max(M, vh - h - M));
+            uiSbarStack.style.left = Math.round(clamp(left, M, Math.max(M, vw - width - M))) + 'px';
             uiSbarStack.style.top = Math.round(top) + 'px';
         } else {
-            const l2 = clamp(b.left + b.width / 2 - width / 2, 8, Math.max(8, vw - width - 8));
-            const t2 = Math.max(8, b.top - h - gap);
+            const l2 = clamp(b.left + b.width / 2 - width / 2, M, Math.max(M, vw - width - M));
+            const t2 = Math.max(M, b.top - h - gap);
             uiSbarStack.style.left = Math.round(l2) + 'px';
             uiSbarStack.style.top = Math.round(t2) + 'px';
         }
         uiSbarStack.classList.toggle('above', mode === 'above');
+        uiSbarStack.classList.toggle('left', mode === 'side' && left < b.left);
     }
 
     function setStatus(state, text, opts) {
@@ -15362,10 +15539,8 @@
 
         /* 事件统一委托到 root（shadow 内所有可点元素） */
         root.addEventListener('click', onRootClick, true);
-        root.addEventListener('pointerdown', onRootPress, true);
-        root.addEventListener('pointerup', cancelRootPress, true);
-        root.addEventListener('pointercancel', cancelRootPress, true);
-        root.addEventListener('pointermove', cancelRootPress, true);
+        /* 2.17.0：菜单项上的长按手势整体下线（撤销与历史回溯已是两个独立按钮）。
+         * onRootPress / cancelRootPress 保留为空实现占位，避免旧引用报错。 */
 
         window.addEventListener('resize', function () {
             applyBallPosition();
@@ -15875,6 +16050,25 @@
     }
 
     /* ------------------------- 面板开关 ------------------------- */
+    /* 2.17.0：关闭面板即重置视图 —— 下次点悬浮球进来一定回到「文件页」。
+     * 无论刚才停在设置页、回执页还是某个文件的编辑器里，关闭时统一收回到文件列表；
+     * 编辑器的自动保存先停掉，草稿与只读/批量等临时态一并清空（未保存内容由关闭前的三选一闸门处理）。 */
+    function resetPanelView() {
+        uiState.tab = 'files';
+        uiState.view = 'list';
+        uiState.editing = null;
+        uiState.draft = null;
+        uiState.pasteCaret = null;
+        uiState.focusEd = false;
+        uiState.batchMode = false;
+        uiState.selected = {};
+        uiState.toolbarMore = false;
+        uiState.newEntry = null;
+        uiState.rename = null;
+        uiState.histPos = null;
+        uiState.spDraft = null;
+        try { edAutosaveStop(); } catch (e) {}
+    }
     function closePanel() {
         if (!uiPanel) return;
         // 2.16.0 需求19：关面板时若有未保存改动 → 三选一确认
@@ -15890,6 +16084,7 @@
         if (uiRoot) uiRoot.classList.remove('open');
         closeMenu();
         closeSheet();
+        resetPanelView();
     }
     function togglePanel() {
         if (!uiPanel) return;
@@ -15920,6 +16115,7 @@
             else clearBallHint();
         } else {
             closeMenu();
+            resetPanelView();
         }
     }
 
@@ -15978,7 +16174,9 @@
              * 只读文件隐藏写入类（撤销/重做/粘贴/保存）。撤销短按=撤销打字，长按 550ms=保存点时间轴。 */
             const rd = !!uiState.editing.readonly;
             const text = [];
-            if (!rd) text.push({ t: '撤销（长按回溯）', icon: ic('undo'), a: 'edUndo', lp: 'edTimeline' });
+            // 2.17.0：取消「长按撤销」隐藏手势，拆成两个完全独立的按钮
+            if (!rd) text.push({ t: '撤销（撤销打字）', icon: ic('undo'), a: 'edUndo' });
+            if (!rd) text.push({ t: '历史回溯（版本时间轴）', icon: ic('restore'), a: 'edTimeline' });
             if (!rd) text.push({ t: '重做', icon: ic('redo'), a: 'edRedo' });
             text.push({ t: '全选', icon: ic('selectAll'), a: 'edSelAll' });
             text.push({ t: '复制', icon: ic('copy'), a: 'edCopy' });
@@ -16593,6 +16791,9 @@
             uiState.view = 'editor';
             uiState.draft = null;          // 换文件不继承上一个文件的草稿
             uiState.pasteCaret = null;
+            uiState.histPos = -1;          // 历史回溯：换文件从「当前草稿」重新开始
+            uiState.spDraft = null;
+            uiState.spList = null;
             // 2.16.0：换文件要换编辑器自己的撤销历史与「最近保存」基线
             edAutosaveStop();
             edHistReset(p, String(node.content == null ? '' : node.content));
@@ -16680,7 +16881,8 @@
         const caret = ta.selectionStart == null ? 0 : ta.selectionStart;
         ta.value = text;
         uiState.draft = text;
-        try { renderEditor(uiPanel.querySelector('.pbody')); } catch (e) {}
+        uiState.histPos = -1;
+        try { renderBody(); } catch (e) {}
         uiState.focusEd = true;
         uiState.pasteCaret = Math.min(caret, text.length);
     }
@@ -16815,44 +17017,117 @@
         });
     }
 
-    /* 需求15/16：长按撤销 → 保存点时间轴（最新在上，点击后二次确认回退） */
+    /* 2.17.0：历史回溯 = 双向版本时间轴（最新在上、最旧在下，竖线 + 圆点）。
+     * · 每个保存点都留在列表里，跳回旧版本不会删掉新版本 → 可以原地再跳回来；
+     * · 「当前草稿」作为最上面的一条，随时能回到未保存的编辑内容；
+     * · 点击即跳（不弹确认）：跳转本身可逆，弹窗只会让「左右横跳」变慢。 */
+    function histPosNow() {
+        const n = (uiState.spList || []).length;
+        let pos = uiState.histPos;
+        if (pos == null || pos < -1) pos = -1;
+        if (pos >= n) pos = n - 1;
+        return pos;
+    }
     function openSaveTimeline() {
         const st = uiState.editing;
         if (!st) return;
         const list = loadSavePoints(st.path);
         uiState.spList = list;
-        let h = '<div class="sh-t">保存点 · 最新在上</div>' +
-            '<div class="spt">共 ' + list.length + ' 条（上限 ' + CONFIG.SAVEPOINT_MAX + '）· 点一条回退</div>';
-        if (!list.length) h += '<div class="empty">还没有保存点：手动保存或等自动保存</div>';
-        for (let i = 0; i < list.length; i++) {
+        if (uiState.spDraft == null) uiState.spDraft = editorText();
+        const pos = histPosNow();
+        const total = list.length;
+        let h = '<div class="sh-t">历史回溯 · 最新在上</div>' +
+            '<div class="spt">' + total + ' 个保存点 · 上限 ' + CONFIG.SAVEPOINT_MAX +
+            ' · 位置 ' + (pos < 0 ? '当前草稿' : (pos + 1) + '/' + total) +
+            ' · 点任意一条即可跳转（可来回切）</div>';
+        if (!total) h += '<div class="empty">还没有保存点：手动保存或等自动保存后就有了</div>';
+        h += '<div class="tl">';
+        h += '<button type="button" class="tl-i' + (pos < 0 ? ' cur' : '') + '" data-sp="cur">' +
+            '<span class="tl-dot"></span><span class="tl-b"><span class="k">当前草稿</span>' +
+            '<span class="t">编辑中 · ' + safeNum(String(uiState.spDraft || '').length) + ' 字符</span>' +
+            '<span class="d">还没保存到文件的内容</span></span></button>';
+        for (let i = 0; i < total; i++) {
             const sp = list[i];
-            h += '<button data-sp="' + i + '" class="spi"><span class="k' + (sp.label === '自动' ? ' auto' : '') + '">' +
-                esc(sp.label) + '</span><span class="t">' + esc(fmtClock(sp.at)) + '</span></button>';
+            const cls = 'tl-i' + (i === pos ? ' cur' : '');
+            h += '<button type="button" class="' + cls + '" data-sp="' + i + '">' +
+                '<span class="tl-dot"></span><span class="tl-b"><span class="k' + (sp.label === '自动' ? ' auto' : '') + '">' +
+                esc(sp.label) + '</span><span class="t">' + esc(fmtClock(sp.at)) + '</span>' +
+                '<span class="d">' + safeNum(String(sp.content == null ? '' : sp.content).length) + ' 字符</span></span></button>';
         }
+        h += '</div>';
+        h += '<div class="set btns"><button type="button" class="btn sm" data-spn="-1">← 更旧</button>' +
+            '<button type="button" class="btn sm" data-spn="1">更新 →</button>' +
+            '<button type="button" class="btn sm" data-spn="newest">回到最新</button></div>';
         uiSheet.innerHTML = h;
         uiSheet.classList.add('on');
         uiMask.classList.add('on');
     }
-    function spRevert(i) {
+    /* 跳到时间轴第 pos 条（-1 = 当前草稿）；只改编辑区内容，不删除任何版本 */
+    function spGoto(pos) {
         const st = uiState.editing;
+        if (!st) return;
         const list = uiState.spList || [];
-        const sp = list[i];
-        closeSheet();
-        if (!st || !sp) return;
-        confirmAsk({
-            title: '回退到 ' + fmtClock(sp.at) + ' 的' + sp.label + '保存点？',
-            text: '编辑区会换成那一次保存的内容（还没落盘，可再保存或继续撤销）。',
-            ok: '回退',
-            cb: function () {
-                const ta = editorTa();
-                if (!ta) return;
-                edHistPush();
-                ta.value = sp.content;
-                uiState.draft = sp.content;
-                try { renderEditor(uiPanel.querySelector('.pbody')); } catch (e) {}
-                showToast('已回退到 ' + fmtClock(sp.at));
-            }
-        });
+        const p = Math.max(-1, Math.min(list.length - 1, pos));
+        const text = p < 0
+            ? String(uiState.spDraft == null ? editorText() : uiState.spDraft)
+            : String(list[p].content == null ? '' : list[p].content);
+        uiState.histPos = p;
+        uiState.draft = text;
+        const ta = editorTa();
+        if (ta) ta.value = text;
+        try { renderEditor(uiPanel.querySelector('.pbody')); } catch (e) { try { renderBody(); } catch (e2) {} }
+        const at = p < 0 ? '当前草稿' : (fmtClock(list[p].at) + ' 的' + list[p].label + '保存点');
+        showToast((p < 0 ? '已回到' : '已跳到') + at + (p < 0 ? '' : '（可再点「更新 →」回来）'));
+        try { openSaveTimeline(); } catch (e) {}
+    }
+    function spStep(dir) {
+        const pos = histPosNow();
+        spGoto(pos + (dir < 0 ? 1 : -1));
+    }
+    function spRevert(i) {
+        if (i === 'cur' || i == null) { spGoto(-1); return; }
+        const n = parseInt(i, 10);
+        if (!isFinite(n)) return;
+        spGoto(n);
+    }
+
+    /* 2.17.0：设置 › 概览的容器历史时间轴。
+     * 不是「点一下直接撤销」，而是把撤销档按时间倒序画成一条竖线：最新在最上、最旧在最下，
+     * 当前所在的一档高亮，它上面的档标成「可前进」，点任意一档就双向跳过去（旧→新、新→旧都行）。 */
+    function openHistoryTimeline() {
+        let meta = [];
+        try { meta = VirtualFS.undoMeta ? VirtualFS.undoMeta() : []; } catch (e) { meta = []; }
+        const cur = meta.filter(function (m) { return m.current; })[0] || null;
+        const oldest = meta.length ? meta[meta.length - 1].idx : 0;
+        const newest = meta.length ? meta[0].idx : 0;
+        let h = '<div class="sh-t">容器历史 · 最新在上</div>' +
+            '<div class="spt">共 ' + meta.length + ' 档 · 当前 #' + (cur ? cur.idx : '—') +
+            ' · 点任意一档即可跳过去（旧的新的一起）</div>';
+        if (!meta.length) h += '<div class="empty">还没有历史档：写一次文件就有了</div>';
+        h += '<div class="tl">';
+        for (const m of meta) {
+            const fut = !!cur && m.idx > cur.idx;
+            h += '<button type="button" class="tl-i' + (m.current ? ' cur' : '') + (fut ? ' fut' : '') + '" data-ud="' + m.idx + '">' +
+                '<span class="tl-dot"></span><span class="tl-b">' +
+                '<span class="t">#' + safeNum(m.idx) + ' · ' + esc(m.at ? fmtClock(m.at) : '—') + '</span>' +
+                '<span class="d">' + esc(m.label || '（无标签）') + (m.current ? ' · 当前' : (fut ? ' · 可前进' : '')) + '</span>' +
+                '</span></button>';
+        }
+        h += '</div>';
+        h += '<div class="set btns"><button type="button" class="btn sm" data-ud="' + oldest + '">← 最早</button>' +
+            '<button type="button" class="btn sm" data-ud="' + newest + '">最新 →</button></div>';
+        uiSheet.innerHTML = h;
+        uiSheet.classList.add('on');
+        uiMask.classList.add('on');
+    }
+    function historyGoto(idx) {
+        let r = null;
+        try { r = VirtualFS.undoSeek(idx); } catch (e) { r = { ok: false, error: (e && e.message) || '跳转失败' }; }
+        showToast((r && r.ok) ? ('已回到 #' + idx) : ((r && r.error) || '跳转失败'), (r && r.ok) ? '' : 'warn');
+        if (!r || !r.ok) return;
+        pushLog('面板历史回溯 → #' + idx);
+        try { render(); } catch (e) {}
+        try { openHistoryTimeline(); } catch (e) {}
     }
 
     // 读剪贴板（异步）。WebView 里可能弹权限框或直接拒绝 —— 都留给调用方降级提示。
@@ -16915,7 +17190,12 @@
 
 
     function renderEditor(body) {
+        /* 2.17.0 防叠加（硬修）：任何路径重画编辑器前先清空容器。
+         * 以前回溯/撤销直接对 pbody appendChild，点几次就在下面叠几个编辑区；
+         * 这里做成幂等 —— 无论被调用多少次，pbody 里永远只有一个编辑器。 */
+        if (body) body.innerHTML = '';
         const st = uiState.editing;
+        if (!st) return;
         const node = VirtualFS.resolve(st.path);
         if (!node || node.type !== 'file') {
             body.appendChild(el('div', 'empty', '文件不存在：' + st.path));
@@ -16964,8 +17244,10 @@
         ta.addEventListener('input', function () {
             if (!readonly) {
                 uiState.draft = ta.value;
+                uiState.spDraft = null;  // 2.17.0：时间轴的「当前草稿」跟随最新输入
+                uiState.histPos = -1;
                 edUnlockAutosave();      // 有新的改动 → 允许下一次自动保存重试
-                edHistSchedule();        // 需求15：撤销短按 = 撤销打字
+                edHistSchedule();        // 撤销按钮 = 撤销打字（与「历史回溯」完全独立）
             }
             paintGutter();
             updateStatus();
@@ -17334,6 +17616,45 @@
         return h;
     }
 
+    /* 2.17.0：设置 › MCP 直接列出已有服务 —— 名称 / 地址 / 连接状态，不再是盲盒。
+     * 每一行都能「检测」（真的 initialize + tools/list 一次）、启停、移除。 */
+    function mcpServersHTML(list) {
+        list = list || [];
+        if (!list.length) {
+            return '<div class="set col"><span class="lb">已有服务<span class="sub">' +
+                '未配置：不加载、不请求、不影响任何命令</span></span></div>';
+        }
+        let h = '<div class="set col"><span class="lb">已有服务（' + list.length + ' 个）' +
+            '<span class="sub">名称 / 地址 / 连接状态；「检测」会真的连一次（initialize + tools/list）</span></span></div>' +
+            '<div class="mcp-l">';
+        for (const s of list) {
+            let st = null;
+            try { st = Mcp.connStatus(s.id); } catch (e) { st = null; }
+            st = st || {};
+            const off = s.enabled === false;
+            const cls = off ? 'off' : (st.running ? 'run' : (st.ready ? 'ok' : (st.err ? 'err' : '')));
+            const status = off ? '已停用'
+                : (st.running ? ('执行中 ' + st.running)
+                    : (st.ready ? ('已连接' + (st.tools ? ' · ' + st.tools + ' 工具' : ''))
+                        : (st.err ? '连接失败' : '未连接')));
+            h += '<div class="mcp-row ' + cls + '">' +
+                '<span class="m-dot"></span>' +
+                '<span class="m-b"><span class="m-n">' + esc(s.name || s.id) + '</span>' +
+                '<span class="m-u">' + esc(Mcp.maskUrl(s.url)) + '</span></span>' +
+                '<span class="m-s">' + esc(status) + '</span></div>' +
+                '<div class="set btns" style="padding:0 0 2px">' +
+                '<button type="button" class="btn sm" data-a="mcpCheck" data-id="' + esc(s.id) + '">检测</button>' +
+                '<button type="button" class="btn sm" data-a="mcpToggle" data-id="' + esc(s.id) + '">' + (off ? '启用' : '停用') + '</button>' +
+                '<button type="button" class="btn sm dgr" data-a="mcpRemove" data-id="' + esc(s.id) + '">移除</button></div>';
+            if (st.err && !off) {
+                h += '<div class="set col" style="padding:0 0 4px"><span class="lb"><span class="sub">⚠ ' +
+                    esc(st.err) + '</span></span></div>';
+            }
+        }
+        h += '</div>';
+        return h;
+    }
+
     function renderSettingsTab(body) {
         const cfg = getUiCfg();
         const planNow = getPlanState();
@@ -17346,7 +17667,7 @@
         h += accItem('set.overview', '概览',
             '<div class="stat">' +
             '<button data-a="goFiles"><b>' + fileCount + '</b><span>文件</span></button>' +
-            '<button data-a="goUndo"><b>' + safeNum(VirtualFS.undoIdx().cursor) + '</b><span>可撤销</span></button>' +
+            '<button data-a="goTimeline"><b>' + safeNum(VirtualFS.undoIdx().cursor) + '</b><span>历史时间轴</span></button>' +
             '<button data-a="goAbout"><b>' + safeNum(AnchorStore.size()) + '</b><span>锚点</span></button></div>' +
             '<div class="set btns"><button class="btn sm" data-a="onboard">首次运行设置与说明…</button></div>',
             fileCount + ' 文件');
@@ -17405,7 +17726,8 @@
         h += accItem('set.editor', '编辑器',
             swRow('autosave', '自动保存', '有改动才存，每 2 分钟一次；失败标红不重试', cfg.autosave !== false) +
             '<div class="set col"><span class="lb">撤销与保存点<span class="sub">' +
-            '菜单 › 文本编辑 › 撤销：短按撤销打字；长按 550ms 打开保存点时间轴（只记手动与自动保存，最多 ' + CONFIG.SAVEPOINT_MAX + ' 条，最新在上）。' +
+            '菜单 › 文本编辑 里有两个独立按钮：「撤销」只撤销打字；「历史回溯」打开版本时间轴' +
+            '（只记手动与自动保存，最多 ' + CONFIG.SAVEPOINT_MAX + ' 条，最新在上，点任意一条即可来回跳）。' +
             '自动保存不进撤销栈。</span></span></div>');
 
         /* 2.16.0 MCP（未配置时零影响：不加载、不请求、不占回执） */
@@ -17421,9 +17743,7 @@
                 '<button class="btn sm' + (mc.riskMode === 'never' ? ' pri' : '') + '" data-a="mcpRisk" data-v="never">不自动</button></div>' +
                 '<div class="set btns"><button class="btn sm' + (mc.chain !== false ? ' pri' : '') + '" data-a="mcpChain" data-v="on">链式执行开</button>' +
                 '<button class="btn sm' + (mc.chain === false ? ' pri' : '') + '" data-a="mcpChain" data-v="off">链式执行关</button></div>' +
-                '<div class="set col"><span class="lb">服务<span class="sub">' +
-                esc(ml.length ? ml.map(function (x) { return (x.name || x.id) + ' → ' + Mcp.maskUrl(x.url) + (x.enabled === false ? '（已停用）' : ''); }).join('\n')
-                    : '未配置：不加载、不请求、不影响任何命令') + '</span></span></div>' +
+                mcpServersHTML(ml) +
                 '<div class="form"><input class="inp" id="mcpName" placeholder="名称，如 NPMCP" autocomplete="off">' +
                 '<input class="inp" id="mcpUrl" placeholder="http://192.168.1.5:8787/mcp" autocomplete="off"></div>' +
                 '<div class="set btns"><button class="btn sm pri" data-a="mcpAddUi">添加服务</button>' +
@@ -17789,7 +18109,20 @@
             return;
         }
         const spBtn = t.closest('[data-sp]');
-        if (spBtn && inSheet) { spRevert(parseInt(spBtn.getAttribute('data-sp'), 10)); return; }
+        if (spBtn && inSheet) {
+            const raw = spBtn.getAttribute('data-sp');
+            spRevert(raw === 'cur' ? 'cur' : parseInt(raw, 10));
+            return;
+        }
+        const spn = t.closest('[data-spn]');
+        if (spn && inSheet) {
+            const v = spn.getAttribute('data-spn');
+            if (v === 'newest') spGoto(0);
+            else spStep(parseInt(v, 10) || 0);
+            return;
+        }
+        const udBtn = t.closest('[data-ud]');
+        if (udBtn && inSheet) { historyGoto(parseInt(udBtn.getAttribute('data-ud'), 10)); return; }
         const th = t.closest('[data-th]');
         if (th) {
             saveUiCfg({ palette: th.getAttribute('data-th') });
@@ -18003,6 +18336,7 @@
             case 'up': navTo(parentPath(uiState.filesPath)); break;
             case 'goRoot': navTo('/'); break;
             case 'goFiles': uiState.tab = 'files'; uiState.view = 'list'; render(); break;
+            case 'goTimeline': openHistoryTimeline(); break;
             case 'goUndo': {
                 const r = VirtualFS.undo(1);
                 showToast(r && r.ok ? '已撤销' : ((r && r.error) || '没有可撤销的步骤'), r && r.ok ? '' : 'warn');
@@ -18110,6 +18444,45 @@
                     pushReceipt((r.summary || '') + ((r.body && r.body.length) ? ('\n' + r.body.join('\n')) : ''), r.ok ? '' : 'warn');
                     render();
                 }, function (e) { showToast('添加失败：' + ((e && e.message) || e), 'err'); });
+                break;
+            }
+            case 'mcpCheck': {
+                const id = node && node.getAttribute ? node.getAttribute('data-id') : '';
+                const srv = Mcp.findServer(id);
+                if (!srv) { showToast('找不到这个 MCP 服务', 'warn'); break; }
+                const label = srv.name || srv.id;
+                statusBarSet('mcp:probe:' + srv.id, '正在检测 ' + label, 'run');
+                Mcp.listTools(srv, true).then(function (tools) {
+                    statusBarRemove('mcp:probe:' + srv.id);
+                    showToast('MCP 已连接：' + label + ' · ' + ((tools && tools.length) || 0) + ' 个工具');
+                    render();
+                }, function (e) {
+                    statusBarRemove('mcp:probe:' + srv.id);
+                    showToast('MCP 连接失败：' + ((e && e.message) || e), 'err');
+                    render();
+                });
+                break;
+            }
+            case 'mcpToggle':
+            case 'mcpRemove': {
+                const id = node && node.getAttribute ? node.getAttribute('data-id') : '';
+                const srv = Mcp.findServer(id);
+                if (!srv) { showToast('找不到这个 MCP 服务', 'warn'); break; }
+                const name = srv.name || srv.id;
+                if (a === 'mcpRemove') {
+                    askConfirm('移除 MCP 服务「' + name + '」', null, '只删掉面板里的这条配置，不会动对方服务', function () {
+                        Mcp.doMcp({ op: 'mcp', raw: 'mcp remove ' + name, line: 0 }).then(function (r) {
+                            showToast(r.ok ? ('已移除 ' + name) : (r.error || '移除失败'), r.ok ? '' : 'warn');
+                            render();
+                        }, function (e) { showToast('移除失败：' + ((e && e.message) || e), 'err'); });
+                    });
+                    break;
+                }
+                const turnOn = srv.enabled === false;
+                Mcp.doMcp({ op: 'mcp', raw: 'mcp ' + (turnOn ? 'enable ' : 'disable ') + name, line: 0 }).then(function (r) {
+                    showToast(r.ok ? ((turnOn ? '已启用 ' : '已停用 ') + name) : (r.error || '操作失败'), r.ok ? '' : 'warn');
+                    render();
+                }, function (e) { showToast('操作失败：' + ((e && e.message) || e), 'err'); });
                 break;
             }
             case 'mcpToolsUi':
